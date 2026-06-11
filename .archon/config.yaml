@@ -1,0 +1,79 @@
+harness_version: HEAD-baa56a5
+agent: claude
+skill_count: 24
+created_at: 2026-06-11T06:09:18.34689859Z
+mutation_testing:
+    enabled: false
+skill_inventory:
+    - name: _shared
+      version: "1.0"
+      source: embedded
+    - name: branch-pr
+      version: "1.0"
+      source: embedded
+    - name: chained-pr
+      version: "1.0"
+      source: embedded
+    - name: cognitive-doc-design
+      version: "1.0"
+      source: embedded
+    - name: comment-writer
+      version: "1.0"
+      source: embedded
+    - name: go-testing
+      version: "1.0"
+      source: embedded
+    - name: harness-judge
+      version: "1.0"
+      source: embedded
+    - name: harness-workflow
+      version: "1.0"
+      source: embedded
+    - name: issue-creation
+      version: "1.0"
+      source: embedded
+    - name: judgment-day
+      version: "1.0"
+      source: embedded
+    - name: sdd-apply
+      version: "1.0"
+      source: embedded
+    - name: sdd-archive
+      version: "1.0"
+      source: embedded
+    - name: sdd-design
+      version: "1.0"
+      source: embedded
+    - name: sdd-explore
+      version: "1.0"
+      source: embedded
+    - name: sdd-init
+      version: "1.0"
+      source: embedded
+    - name: sdd-onboard
+      version: "1.0"
+      source: embedded
+    - name: sdd-propose
+      version: "1.0"
+      source: embedded
+    - name: sdd-spec
+      version: "1.0"
+      source: embedded
+    - name: sdd-tasks
+      version: "1.0"
+      source: embedded
+    - name: sdd-verify
+      version: "1.0"
+      source: embedded
+    - name: skill-creator
+      version: "1.0"
+      source: embedded
+    - name: skill-improver
+      version: "1.0"
+      source: embedded
+    - name: skill-registry
+      version: "1.0"
+      source: embedded
+    - name: work-unit-commits
+      version: "1.0"
+      source: embedded

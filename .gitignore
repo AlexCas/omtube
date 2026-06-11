@@ -1,0 +1,10 @@
+# Compiled binary
+/terminaltube
+
+# Go build artifacts
+*.exe
+*.test
+*.out
+
+# Editor / OS
+.DS_Store

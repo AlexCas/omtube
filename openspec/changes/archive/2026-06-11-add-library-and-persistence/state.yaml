@@ -1,0 +1,22 @@
+phase: archive
+status: completed
+history:
+  - {phase: explore, status: completed, ts: "2026-06-11T08:00:00Z"}
+  - {phase: propose, status: completed, ts: "2026-06-11T08:05:00Z"}
+  - {phase: spec, status: in_progress, ts: "2026-06-11T09:00:00Z"}
+  - {phase: spec, status: completed, ts: "2026-06-11T09:15:00Z"}
+  - {phase: design, status: in_progress, ts: "2026-06-11T09:20:00Z"}
+  - {phase: design, status: completed, ts: "2026-06-11T09:35:00Z"}
+  - {phase: tasks, status: in_progress, ts: "2026-06-11T09:40:00Z"}
+  - {phase: tasks, status: completed, ts: "2026-06-11T09:55:00Z"}
+  - {phase: apply, status: in_progress, ts: "2026-06-11T10:00:00Z"}
+  - {phase: apply, status: completed, ts: "2026-06-11T10:45:00Z"}
+  - {phase: apply, status: in_progress, ts: "2026-06-11T10:55:00Z"}
+  - {phase: apply, status: completed, ts: "2026-06-11T11:05:00Z"}
+  - {phase: verify, status: in_progress, ts: "2026-06-11T11:10:00Z"}
+  - {phase: verify, status: completed, ts: "2026-06-11T11:25:00Z"}
+  - {phase: judge, status: in_progress, ts: "2026-06-11T11:30:00Z"}
+  - {phase: judge, status: completed, ts: "2026-06-11T12:00:00Z"}
+  - {phase: archive, status: in_progress, ts: "2026-06-11T12:05:00Z"}
+  - {phase: archive, status: completed, ts: "2026-06-11T12:15:00Z"}
+# Fase 2 COMPLETA: ciclo SDD cerrado. Specs canonicos sincronizados; change archivado.

@@ -1,0 +1,11 @@
+phase: archive
+status: completed
+history:
+  - {phase: explore, status: completed, ts: "2026-06-11T07:00:00Z"}
+  - {phase: propose, status: completed, ts: "2026-06-11T07:05:00Z"}
+  - {phase: spec, status: completed, ts: "2026-06-11T07:10:00Z"}
+  - {phase: design, status: completed, ts: "2026-06-11T07:20:00Z"}
+  - {phase: apply, status: completed, ts: "2026-06-11T07:30:00Z"}
+  - {phase: verify, status: completed, ts: "2026-06-11T07:50:00Z"}
+  - {phase: judge, status: completed, ts: "2026-06-11T08:30:00Z"}
+  - {phase: archive, status: completed, ts: "2026-06-11T08:40:00Z"}

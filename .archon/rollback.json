@@ -1,0 +1,31 @@
+{
+  "version": "HEAD-baa56a5",
+  "paths": [
+    "/home/alexcasdev/Projects/omarchymusic/.archon/config.yaml",
+    "/home/alexcasdev/Projects/omarchymusic/.archon/rollback.json",
+    "/home/alexcasdev/Projects/omarchymusic/.claude/skills/_shared",
+    "/home/alexcasdev/Projects/omarchymusic/.claude/skills/branch-pr",
+    "/home/alexcasdev/Projects/omarchymusic/.claude/skills/chained-pr",
+    "/home/alexcasdev/Projects/omarchymusic/.claude/skills/cognitive-doc-design",
+    "/home/alexcasdev/Projects/omarchymusic/.claude/skills/comment-writer",
+    "/home/alexcasdev/Projects/omarchymusic/.claude/skills/go-testing",
+    "/home/alexcasdev/Projects/omarchymusic/.claude/skills/harness-judge",
+    "/home/alexcasdev/Projects/omarchymusic/.claude/skills/harness-workflow",
+    "/home/alexcasdev/Projects/omarchymusic/.claude/skills/issue-creation",
+    "/home/alexcasdev/Projects/omarchymusic/.claude/skills/judgment-day",
+    "/home/alexcasdev/Projects/omarchymusic/.claude/skills/sdd-apply",
+    "/home/alexcasdev/Projects/omarchymusic/.claude/skills/sdd-archive",
+    "/home/alexcasdev/Projects/omarchymusic/.claude/skills/sdd-design",
+    "/home/alexcasdev/Projects/omarchymusic/.claude/skills/sdd-explore",
+    "/home/alexcasdev/Projects/omarchymusic/.claude/skills/sdd-init",
+    "/home/alexcasdev/Projects/omarchymusic/.claude/skills/sdd-onboard",
+    "/home/alexcasdev/Projects/omarchymusic/.claude/skills/sdd-propose",
+    "/home/alexcasdev/Projects/omarchymusic/.claude/skills/sdd-spec",
+    "/home/alexcasdev/Projects/omarchymusic/.claude/skills/sdd-tasks",
+    "/home/alexcasdev/Projects/omarchymusic/.claude/skills/sdd-verify",
+    "/home/alexcasdev/Projects/omarchymusic/.claude/skills/skill-creator",
+    "/home/alexcasdev/Projects/omarchymusic/.claude/skills/skill-improver",
+    "/home/alexcasdev/Projects/omarchymusic/.claude/skills/skill-registry",
+    "/home/alexcasdev/Projects/omarchymusic/.claude/skills/work-unit-commits"
+  ]
+}
