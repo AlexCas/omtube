@@ -45,7 +45,7 @@ func TestFetchSyncedFound(t *testing.T) {
 	defer srv.Close()
 
 	s := newService(t, nil, srv)
-	l, err := s.Fetch(context.Background(), "vid1", "Song", "Artist", 180)
+	l, err := s.Fetch(context.Background(), search.Result{ID: "vid1", Title: "Song", Uploader: "Artist", Duration: 180}, "Song", "Artist")
 	if err != nil {
 		t.Fatalf("Fetch err inesperado: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestFetchPlainFallback(t *testing.T) {
 	defer srv.Close()
 
 	s := newService(t, nil, srv)
-	l, err := s.Fetch(context.Background(), "vid2", "Song", "Artist", 0)
+	l, err := s.Fetch(context.Background(), search.Result{ID: "vid2", Title: "Song", Uploader: "Artist"}, "Song", "Artist")
 	if err != nil {
 		t.Fatalf("Fetch err inesperado: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestFetchNoMatch(t *testing.T) {
 	defer srv.Close()
 
 	s := newService(t, nil, srv)
-	l, err := s.Fetch(context.Background(), "vid3", "Unknown", "Nobody", 0)
+	l, err := s.Fetch(context.Background(), search.Result{ID: "vid3", Title: "Unknown", Uploader: "Nobody"}, "Unknown", "Nobody")
 	if err != nil {
 		t.Fatalf("Fetch no debe propagar error en no-match: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestFetchAPIDown(t *testing.T) {
 
 	s := New(nil, http.DefaultClient)
 	s.baseURL = url
-	l, err := s.Fetch(context.Background(), "vid4", "Song", "Artist", 0)
+	l, err := s.Fetch(context.Background(), search.Result{ID: "vid4", Title: "Song", Uploader: "Artist"}, "Song", "Artist")
 	if err != nil {
 		t.Fatalf("Fetch no debe propagar error con API caída: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestFetchCachesLyricsWithoutPreExistingTrack(t *testing.T) {
 	s := newService(t, db.Lyrics(), srv)
 
 	// Primera Fetch: golpea HTTP y debe cachear pese a que la pista no existía.
-	if _, err := s.Fetch(context.Background(), track.ID, track.Title, track.Uploader, track.Duration); err != nil {
+	if _, err := s.Fetch(context.Background(), track, track.Title, track.Uploader); err != nil {
 		t.Fatalf("primera Fetch: %v", err)
 	}
 
@@ -143,11 +143,121 @@ func TestFetchCachesLyricsWithoutPreExistingTrack(t *testing.T) {
 
 	// Segunda Fetch: debe resolverse desde la caché en BD, confirmando que se
 	// persistió de verdad (sin segundo HTTP).
-	if _, err := s.Fetch(context.Background(), track.ID, track.Title, track.Uploader, track.Duration); err != nil {
+	if _, err := s.Fetch(context.Background(), track, track.Title, track.Uploader); err != nil {
 		t.Fatalf("segunda Fetch: %v", err)
 	}
 	if got := atomic.LoadInt32(&hits); got != 1 {
 		t.Fatalf("la caché en BD debe evitar el segundo HTTP, hits=%d (cacheo no persistió)", got)
+	}
+}
+
+func TestFetchPreservesRawTrackIdentityInStorage(t *testing.T) {
+	// Regresión: el cacheo de letras debe persistir la identidad CRUDA de la
+	// pista (el título/uploader originales de YouTube), NO las cadenas
+	// normalizadas usadas para la consulta saliente. De lo contrario la fila
+	// compartida en tracks (historial/favoritos/playlists) quedaría reescrita
+	// con el texto recortado en cada primera reproducción.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"syncedLyrics":"[00:01.00]Letra","plainLyrics":""}`))
+	}))
+	defer srv.Close()
+
+	// Pista cruda tal como la guardaría history.Add: título de YouTube completo.
+	const rawTitle = "Artist - Song (Official Music Video) [HD]"
+	const rawUploader = "Artist Official"
+	raw := search.Result{ID: "vidraw", Title: rawTitle, Uploader: rawUploader, Duration: 180}
+
+	db, err := storage.Open(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := db.Tracks().Upsert(raw); err != nil {
+		t.Fatalf("Upsert pista cruda: %v", err)
+	}
+
+	s := newService(t, db.Lyrics(), srv)
+
+	// Cadenas de consulta DIVERGENTES (normalizadas) que sí resuelven letra.
+	const queryTitle = "Song"
+	const queryArtist = "Artist"
+	if queryTitle == rawTitle || queryArtist == rawUploader {
+		t.Fatal("la prueba exige cadenas de consulta divergentes de las crudas")
+	}
+
+	if _, err := s.Fetch(context.Background(), raw, queryTitle, queryArtist); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	// La fila compartida en tracks debe conservar el título/uploader CRUDOS.
+	got, found, err := db.Tracks().Get(raw.ID)
+	if err != nil || !found {
+		t.Fatalf("Tracks().Get = (found=%v, err=%v), want (true, nil)", found, err)
+	}
+	if got.Title != rawTitle {
+		t.Errorf("tracks.title reescrito: got %q, want %q (no debe normalizarse)", got.Title, rawTitle)
+	}
+	if got.Uploader != rawUploader {
+		t.Errorf("tracks.uploader reescrito: got %q, want %q (no debe normalizarse)", got.Uploader, rawUploader)
+	}
+}
+
+func TestFetchSearchFallbackAfterGetMiss(t *testing.T) {
+	var getHits, searchHits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/get":
+			atomic.AddInt32(&getHits, 1)
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"code":404,"message":"Not found"}`))
+		case "/api/search":
+			atomic.AddInt32(&searchHits, 1)
+			_, _ = w.Write([]byte(`[{"trackName":"Song","artistName":"Artist","duration":180,"syncedLyrics":"[00:05.00]Encontrada","plainLyrics":"Encontrada"}]`))
+		default:
+			t.Errorf("ruta inesperada: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	s := newService(t, nil, srv)
+	l, err := s.Fetch(context.Background(), search.Result{ID: "vidsf", Title: "Song", Uploader: "Artist", Duration: 180}, "Song", "Artist")
+	if err != nil {
+		t.Fatalf("Fetch err inesperado: %v", err)
+	}
+	if !l.Synced || len(l.Lines) != 1 || l.Lines[0].Text != "Encontrada" {
+		t.Fatalf("se esperaba letra resuelta por /api/search, got %+v", l)
+	}
+	if atomic.LoadInt32(&getHits) != 1 {
+		t.Fatalf("se esperaba 1 golpe a /api/get, got %d", getHits)
+	}
+	if atomic.LoadInt32(&searchHits) != 1 {
+		t.Fatalf("se esperaba 1 golpe a /api/search tras el miss, got %d", searchHits)
+	}
+}
+
+func TestFetchSearchFallbackDisabled(t *testing.T) {
+	var searchHits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/search" {
+			atomic.AddInt32(&searchHits, 1)
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"code":404,"message":"Not found"}`))
+	}))
+	defer srv.Close()
+
+	s := newService(t, nil, srv)
+	s.SetSearchFallback(false)
+	l, err := s.Fetch(context.Background(), search.Result{ID: "vidno", Title: "Song", Uploader: "Artist"}, "Song", "Artist")
+	if err != nil {
+		t.Fatalf("Fetch err inesperado: %v", err)
+	}
+	if !l.Empty() {
+		t.Fatalf("con fallback desactivado el miss debe dar Lyrics vacía, got %+v", l)
+	}
+	if got := atomic.LoadInt32(&searchHits); got != 0 {
+		t.Fatalf("con fallback desactivado no debe llamarse a /api/search, hits=%d", got)
 	}
 }
 
@@ -164,7 +274,7 @@ func TestFetchCacheHitSkipsHTTP(t *testing.T) {
 	s := newService(t, repo, srv)
 
 	// Primera llamada: golpea HTTP y cachea en BD.
-	if _, err := s.Fetch(context.Background(), track.ID, track.Title, track.Uploader, track.Duration); err != nil {
+	if _, err := s.Fetch(context.Background(), track, track.Title, track.Uploader); err != nil {
 		t.Fatalf("primera Fetch: %v", err)
 	}
 	if got := atomic.LoadInt32(&hits); got != 1 {
@@ -172,7 +282,7 @@ func TestFetchCacheHitSkipsHTTP(t *testing.T) {
 	}
 
 	// Segunda llamada: debe resolverse desde la caché en BD sin HTTP.
-	l, err := s.Fetch(context.Background(), track.ID, track.Title, track.Uploader, track.Duration)
+	l, err := s.Fetch(context.Background(), track, track.Title, track.Uploader)
 	if err != nil {
 		t.Fatalf("segunda Fetch: %v", err)
 	}

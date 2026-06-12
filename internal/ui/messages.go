@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/alexcasdev/terminaltube/internal/lyrics"
+	"github.com/alexcasdev/terminaltube/internal/metadata"
 	"github.com/alexcasdev/terminaltube/internal/player"
 	"github.com/alexcasdev/terminaltube/internal/search"
 )
@@ -85,7 +86,11 @@ func fetchLyricsCmd(l lyricsService, track search.Result) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 		defer cancel()
-		ly, _ := l.Fetch(ctx, track.ID, track.Title, track.Uploader, track.Duration)
+		// Normaliza (artist, title) solo para la consulta saliente; los campos
+		// crudos de track quedan intactos (se conservan para mostrar y para el
+		// ID de caché).
+		artist, title := metadata.Normalize(track)
+		ly, _ := l.Fetch(ctx, track, title, artist)
 		return lyricsMsg{videoID: track.ID, lyrics: ly}
 	}
 }
