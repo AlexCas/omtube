@@ -1,4 +1,4 @@
-// Package ui implementa la interfaz de terminal de TerminalTube con Bubble Tea.
+// Package ui implementa la interfaz de terminal de Omusic con Bubble Tea.
 package ui
 
 import (
@@ -33,7 +33,7 @@ type cacheService interface {
 
 // lyricsService resuelve la letra de una pista. Un valor nil ⇒ panel apagado.
 type lyricsService interface {
-	Fetch(ctx context.Context, videoID, title, artist string, dur int) (lyrics.Lyrics, error)
+	Fetch(ctx context.Context, track search.Result, queryTitle, queryArtist string) (lyrics.Lyrics, error)
 }
 
 // artworkService renderiza la portada de una pista. Un valor nil ⇒ panel apagado.

@@ -25,7 +25,7 @@ func (m Model) View() string {
 	}
 
 	var b strings.Builder
-	b.WriteString(m.styles.title.Render("🎵 TerminalTube"))
+	b.WriteString(m.styles.title.Render("🎵 Omusic"))
 	b.WriteString("\n\n")
 
 	// Barra de búsqueda o estado.
@@ -54,7 +54,17 @@ func (m Model) View() string {
 	b.WriteString("\n")
 	b.WriteString(m.renderHelp())
 	b.WriteString("\n")
-	return b.String()
+	return m.center(b.String())
+}
+
+// center centra horizontalmente el bloque de la vista dentro del ancho de la
+// terminal. Antes del primer WindowSizeMsg (m.width == 0) devuelve el contenido
+// sin tocar para no colapsarlo contra el margen izquierdo.
+func (m Model) center(s string) string {
+	if m.width <= 0 {
+		return s
+	}
+	return lipgloss.PlaceHorizontal(m.width, lipgloss.Center, s)
 }
 
 func (m Model) renderResults() string {
@@ -172,7 +182,7 @@ func (m Model) renderLibrary() string {
 	b.WriteString(m.styles.help.Render(
 		"↑/↓ navegar · n/p sección · enter reproducir · f favorito · a +playlist · c crear playlist · esc/L volver · q salir"))
 	b.WriteString("\n")
-	return b.String()
+	return m.center(b.String())
 }
 
 // renderLibList dibuja una lista de líneas con el cursor de biblioteca, o el

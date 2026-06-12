@@ -57,7 +57,7 @@ func (c *fakeCache) Download(_ context.Context, r search.Result) (string, error)
 // fakeLyrics devuelve una letra fija.
 type fakeLyrics struct{ ly lyrics.Lyrics }
 
-func (l fakeLyrics) Fetch(_ context.Context, _, _, _ string, _ int) (lyrics.Lyrics, error) {
+func (l fakeLyrics) Fetch(_ context.Context, _ search.Result, _, _ string) (lyrics.Lyrics, error) {
 	return l.ly, nil
 }
 

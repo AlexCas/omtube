@@ -45,6 +45,12 @@ func New(repo *storage.CacheRepo, ytdlp, dir string, maxBytes int64, maxAge time
 // audioDir devuelve el subdirectorio donde se guardan los archivos de audio.
 func (s *Service) audioDir() string { return filepath.Join(s.dir, "audio") }
 
+// coversDir devuelve el subdirectorio donde el resolutor de portadas (Fase 4)
+// cachea las imágenes de cover y los marcadores negativos .miss. La eliminación
+// de esta caché se apoya en el ciclo de vida del resto de la caché (Evict/Clear)
+// para mantener un único punto de limpieza.
+func (s *Service) coversDir() string { return filepath.Join(s.dir, "covers") }
+
 // Lookup devuelve la ruta del archivo cacheado de la pista id si existe una
 // entrada válida. Valida que el archivo exista y no esté vacío; si falta o está
 // corrupto (tamaño cero), invalida la entrada del índice y devuelve ok=false,
@@ -181,6 +187,7 @@ func (s *Service) Evict() error {
 
 	now := time.Now()
 	var total int64
+	dropped := false
 	live := make([]storage.CacheEntry, 0, len(entries))
 
 	// Paso 1: expiración por antigüedad (y limpieza de archivos faltantes).
@@ -191,6 +198,7 @@ func (s *Service) Evict() error {
 			if err := s.dropEntry(e.VideoID, e.Path); err != nil {
 				return err
 			}
+			dropped = true
 			continue
 		}
 		if s.maxAge > 0 {
@@ -198,6 +206,7 @@ func (s *Service) Evict() error {
 				if err := s.dropEntry(e.VideoID, e.Path); err != nil {
 					return err
 				}
+				dropped = true
 				continue
 			}
 		}
@@ -215,7 +224,19 @@ func (s *Service) Evict() error {
 			if err := s.dropEntry(e.VideoID, e.Path); err != nil {
 				return err
 			}
+			dropped = true
 			total -= e.SizeBytes
+		}
+	}
+
+	// La caché de portadas (covers/) está direccionada por contenido y no
+	// indexada por entrada, así que su limpieza se apoya en el ciclo de vida de
+	// la caché de audio: cuando la expiración descarta entradas, se purgan
+	// también las portadas para no dejar imágenes huérfanas. Se regeneran bajo
+	// demanda en la siguiente reproducción.
+	if dropped {
+		if err := os.RemoveAll(s.coversDir()); err != nil {
+			return fmt.Errorf("evict covers dir: %w", err)
 		}
 	}
 	return nil
@@ -239,6 +260,11 @@ func (s *Service) Clear() error {
 	}
 	if err := os.RemoveAll(s.audioDir()); err != nil {
 		return fmt.Errorf("clear cache dir: %w", err)
+	}
+	// La caché de portadas (covers/) se vacía junto con el audio: comparte el
+	// ciclo de vida de la caché y se regenera bajo demanda.
+	if err := os.RemoveAll(s.coversDir()); err != nil {
+		return fmt.Errorf("clear covers dir: %w", err)
 	}
 	return nil
 }
