@@ -39,23 +39,7 @@ changelog:
       - "^test:"
       - "^chore:"
 
-brews:
-  - name: omusic
-    repository:
-      owner: AlexCas
-      name: homebrew-tap
-      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
-    directory: Formula
-    homepage: "https://github.com/AlexCas/omtube"
-    description: "Reproductor de música TUI que usa YouTube vía yt-dlp y mpv"
-    license: "MIT"
-    # yt-dlp y mpv son obligatorios en runtime; chafa es opcional (panel de portada).
-    dependencies:
-      - name: yt-dlp
-      - name: mpv
-      - name: chafa
-        type: optional
-    install: |
-      bin.install "omusic"
-    test: |
-      assert_match "omusic", shell_output("#{bin}/omusic --version")
+# La fórmula de Homebrew NO se genera aquí: GoReleaser v2.16 removió `brews` y su
+# reemplazo (homebrew_casks) es solo-macOS, lo que rompería Linux. La fórmula se
+# publica al tap con scripts/update-formula.sh (ver release.yml), que funciona en
+# Linux y macOS.

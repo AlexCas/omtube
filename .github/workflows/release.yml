@@ -26,8 +26,13 @@ jobs:
           version: "~> v2"
           args: release --clean
         env:
-          # GITHUB_TOKEN crea el release en este repo.
+          # GITHUB_TOKEN crea el release (binarios + checksums) en este repo.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # TAP_GITHUB_TOKEN es un PAT (scope: repo) con permiso de escritura en
-          # AlexCas/homebrew-tap para publicar la fórmula. Crearlo como secret del repo.
+
+      # Publica la fórmula de Homebrew al tap a partir de los checksums del release.
+      # TAP_GITHUB_TOKEN es un PAT (scope: repo) con escritura en AlexCas/homebrew-tap.
+      - name: Publish Homebrew formula
+        run: scripts/update-formula.sh "${GITHUB_REF_NAME}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
