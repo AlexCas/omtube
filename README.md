@@ -19,8 +19,19 @@ sudo pacman -S mpv yt-dlp
 
 ## Instalación
 
+### Homebrew (Linux y macOS)
+
 ```bash
-go build -o terminaltube .
+brew install AlexCas/tap/omusic
+```
+
+Esto instala el binario `omusic` y, como dependencias, `yt-dlp` y `mpv`
+(`chafa` es opcional, para el panel de portada).
+
+### Desde el código
+
+```bash
+go build -o omusic .
 # o instalar en $GOBIN:
 go install .
 ```
@@ -28,7 +39,7 @@ go install .
 ## Uso
 
 ```bash
-./terminaltube
+omusic
 ```
 
 1. Pulsa `/` para buscar, escribe el nombre de la canción y `Enter`.
