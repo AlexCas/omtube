@@ -1,0 +1,39 @@
+phase: archive
+status: completed
+history:
+  - {phase: explore, status: completed, ts: "2026-06-12T02:40:00Z"}
+  - {phase: propose, status: in_progress, ts: "2026-06-12T02:43:00Z"}
+  - {phase: propose, status: completed, ts: "2026-06-12T02:45:00Z"}
+  - {phase: spec, status: in_progress, ts: "2026-06-11T00:00:00Z"}
+  - {phase: spec, status: completed, ts: "2026-06-11T00:05:00Z"}
+  - {phase: design, status: in_progress, ts: "2026-06-11T00:10:00Z"}
+  - {phase: design, status: completed, ts: "2026-06-11T00:20:00Z"}
+  - {phase: tasks, status: in_progress, ts: "2026-06-11T00:25:00Z"}
+  - {phase: tasks, status: completed, ts: "2026-06-11T00:35:00Z"}
+  - {phase: apply, status: in_progress, ts: "2026-06-11T00:40:00Z"}
+  - {phase: apply, status: completed, ts: "2026-06-11T01:10:00Z"}
+  - {phase: verify, status: in_progress, ts: "2026-06-11T01:12:00Z"}
+  - {phase: verify, status: completed, ts: "2026-06-11T01:30:00Z"}
+  - {phase: judge, status: in_progress, ts: "2026-06-11T01:32:00Z"}
+  - {phase: judge, status: completed, ts: "2026-06-11T02:10:00Z"}
+  - {phase: archive, status: in_progress, ts: "2026-06-11T02:12:00Z"}
+  - {phase: archive, status: completed, ts: "2026-06-11T02:30:00Z"}
+# Judge PASS (Ronda 2, dual review aprobado). Fixes: (1) CRITICAL mutacion de tracks via lyrics store
+#   resuelto cambiando el seam Fetch(track crudo, queryTitle, queryArtist); (2) WARNING .miss transitorio
+#   resuelto con coverOutcome (writeMiss solo en negativo definitivo MB-no-match / CAA 404).
+# Decisiones del gate de tasks: PRs encadenados WU1 -> WU2 (cada uno <400 lineas);
+#   inyeccion de searchFallback la resuelve apply segun la firma actual de lyrics.New.
+# Decisiones humanas resueltas antes de propose:
+#   (1) Fallback de letra: SOLO lrclib /api/search (sin adapter externo Genius/Musixmatch).
+#   (2) Portada: MusicBrainz + Cover Art Archive (thumbnail YT como fallback).
+#   (3) Normalizacion: SOLO para queries (no muta Title/Uploader almacenado).
+# Fase 4 (add-metadata-enrichment) iniciada: EXPLORE completada.
+# Aborda 3 gaps reales de Fase 3 sobre fuentes MV de YouTube:
+#   1. Normalizacion de metadatos (titulo/artista limpios) -> nueva capability `metadata`.
+#   2. Fallback de letras (lrclib /api/search sobre la query normalizada; deps externas diferidas).
+#   3. Portada real via MusicBrainz + Cover Art Archive (cacheada, throttle ~1 req/s, fallback thumbnail).
+# MVP: internal/metadata (puro Go) + cablear query de letras + fallback /api/search; MB+CAA como 2da slice.
+# Restricciones: puro Go / no-cgo / binario estatico; toggles opt-in; degradacion elegante; SponsorBlock fuera.
+# Preflight de sesion (heredado): A1 interactive, B1 openspec, C1 ask-always, D1 400 lineas.
+# Ajustes directos no-SDD aplicados en esta sesion (fuera del alcance de enrichment):
+#   rename de producto TerminalTube -> Omusic (UI/README/comentarios) y centrado horizontal de la TUI.

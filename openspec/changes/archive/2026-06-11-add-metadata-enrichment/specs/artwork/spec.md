@@ -1,30 +1,6 @@
-# Artwork Specification
+# Delta for Artwork
 
-## Purpose
-
-Mostrar la portada/thumbnail de la pista en el terminal usando el protocolo gráfico
-disponible (kitty graphics o sixel), con degradación elegante a `chafa` (ASCII/blocks)
-o a sin-portada cuando el terminal no soporta imágenes.
-
-## Requirements
-
-### Requirement: Terminal Graphics Detection
-
-The system MUST detect the terminal's image capability and select a render path: kitty
-graphics, sixel, `chafa` fallback, or no-image. Artwork MUST be controllable by a config
-toggle.
-
-#### Scenario: Capable terminal
-
-- GIVEN el terminal soporta kitty graphics o sixel
-- WHEN se muestra la portada
-- THEN se renderiza la imagen con el protocolo soportado
-
-#### Scenario: Unsupported terminal
-
-- GIVEN el terminal no soporta protocolos de imagen
-- WHEN se intenta mostrar la portada
-- THEN se degrada a `chafa` si está disponible, o a sin-portada, sin error
+## MODIFIED Requirements
 
 ### Requirement: Render Current Track Artwork
 
@@ -35,6 +11,7 @@ Art Archive front cover, keyed off the normalized `(artist, title)`. Cover-art l
 MUST send a descriptive User-Agent, MUST be throttled to roughly one request per second,
 and MUST cache results including negative (no-match) outcomes. On any miss, offline
 state, or when the toggle is off, the system MUST fall back to the YouTube thumbnail.
+(Previously: artwork was always the YouTube thumbnail — cached `--write-thumbnail` file or `i.ytimg` `hqdefault.jpg` — with no release-cover source.)
 
 #### Scenario: Show artwork on play
 

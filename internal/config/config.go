@@ -1,4 +1,4 @@
-// Package config carga la configuración de TerminalTube vía Viper y resuelve las
+// Package config carga la configuración de Omusic vía Viper y resuelve las
 // rutas XDG donde se guardan config, datos y logs.
 package config
 
@@ -28,8 +28,16 @@ type Config struct {
 
 	// LyricsEnabled activa el panel de letra (lrclib).
 	LyricsEnabled bool
+	// LyricsSearchFallback activa el reintento difuso contra /api/search tras un
+	// miss de /api/get (Fase 4). Por defecto activo: conserva el comportamiento
+	// introducido en WU1.
+	LyricsSearchFallback bool
 	// ArtworkEnabled activa el panel de portada.
 	ArtworkEnabled bool
+	// ArtworkCoverArt activa la resolución de la portada real vía MusicBrainz +
+	// Cover Art Archive (Fase 4). Por defecto inactivo: con el toggle apagado la
+	// portada es byte-idéntica a la Fase 3 (solo thumbnail de YouTube).
+	ArtworkCoverArt bool
 
 	// PresenceEnabled activa la presencia de Discord. Permanece inactiva mientras
 	// PresenceAppID esté vacío (el usuario debe proveer su propio app_id).
@@ -95,7 +103,9 @@ func Load() (Config, error) {
 	v.SetDefault("cache.max_size_mb", 1024)
 	v.SetDefault("cache.max_age_days", 30)
 	v.SetDefault("lyrics.enabled", true)
+	v.SetDefault("lyrics.search_fallback", true)
 	v.SetDefault("artwork.enabled", true)
+	v.SetDefault("artwork.cover_art", false)
 	v.SetDefault("presence.enabled", false)
 	v.SetDefault("presence.app_id", "")
 
@@ -121,13 +131,15 @@ func Load() (Config, error) {
 		MpvPath:       v.GetString("mpv_path"),
 		YtDlpPath:     v.GetString("ytdlp_path"),
 
-		CacheEnabled:    v.GetBool("cache.enabled"),
-		CacheMaxSizeMB:  v.GetInt("cache.max_size_mb"),
-		CacheMaxAgeDays: v.GetInt("cache.max_age_days"),
-		LyricsEnabled:   v.GetBool("lyrics.enabled"),
-		ArtworkEnabled:  v.GetBool("artwork.enabled"),
-		PresenceEnabled: v.GetBool("presence.enabled"),
-		PresenceAppID:   v.GetString("presence.app_id"),
+		CacheEnabled:         v.GetBool("cache.enabled"),
+		CacheMaxSizeMB:       v.GetInt("cache.max_size_mb"),
+		CacheMaxAgeDays:      v.GetInt("cache.max_age_days"),
+		LyricsEnabled:        v.GetBool("lyrics.enabled"),
+		LyricsSearchFallback: v.GetBool("lyrics.search_fallback"),
+		ArtworkEnabled:       v.GetBool("artwork.enabled"),
+		ArtworkCoverArt:      v.GetBool("artwork.cover_art"),
+		PresenceEnabled:      v.GetBool("presence.enabled"),
+		PresenceAppID:        v.GetString("presence.app_id"),
 
 		ConfigDir: appConfigDir,
 		DataDir:   appDataDir,

@@ -333,3 +333,65 @@ func TestClearEmptiesCache(t *testing.T) {
 		t.Fatal("audio dir should be removed after Clear")
 	}
 }
+
+// TestClearRemovesCoversDir verifica que Clear también purga la caché de
+// portadas (covers/), que comparte el ciclo de vida de la caché de audio
+// (task 3.5: la eviction de portadas se apoya en Evict/Clear).
+func TestClearRemovesCoversDir(t *testing.T) {
+	repo := newRepo(t)
+	dir := t.TempDir()
+	svc := New(repo, "", dir, 0, 0)
+
+	coversDir := filepath.Join(dir, "covers")
+	if err := os.MkdirAll(coversDir, 0o755); err != nil {
+		t.Fatalf("mkdir covers: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(coversDir, "deadbeef.jpg"), []byte("img"), 0o644); err != nil {
+		t.Fatalf("write cover: %v", err)
+	}
+
+	if err := svc.Clear(); err != nil {
+		t.Fatalf("Clear: %v", err)
+	}
+	if _, err := os.Stat(coversDir); !os.IsNotExist(err) {
+		t.Fatal("covers dir should be removed after Clear")
+	}
+}
+
+// TestEvictRemovesCoversDirWhenEntriesDropped verifica que cuando la expiración
+// por antigüedad descarta entradas, Evict purga también covers/ para no dejar
+// portadas huérfanas (task 3.5: piggyback en el ciclo de vida de la caché).
+func TestEvictRemovesCoversDirWhenEntriesDropped(t *testing.T) {
+	repo := newRepo(t, search.Result{ID: "old"})
+	idx := newIndex(repo)
+	dir := t.TempDir()
+	audioDir := filepath.Join(dir, "audio")
+	if err := os.MkdirAll(audioDir, 0o755); err != nil {
+		t.Fatalf("mkdir audio: %v", err)
+	}
+	p := filepath.Join(audioDir, "old.opus")
+	if err := os.WriteFile(p, make([]byte, 50), 0o644); err != nil {
+		t.Fatalf("write audio: %v", err)
+	}
+	if err := idx.record(search.Result{ID: "old"}, p, 50, "opus"); err != nil {
+		t.Fatalf("record: %v", err)
+	}
+
+	coversDir := filepath.Join(dir, "covers")
+	if err := os.MkdirAll(coversDir, 0o755); err != nil {
+		t.Fatalf("mkdir covers: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(coversDir, "deadbeef.miss"), nil, 0o644); err != nil {
+		t.Fatalf("write miss: %v", err)
+	}
+
+	// maxAge de 1ns ⇒ la entrada se expira y se descarta, disparando la purga
+	// de covers/.
+	svc := New(repo, "", dir, 0, time.Nanosecond)
+	if err := svc.Evict(); err != nil {
+		t.Fatalf("Evict: %v", err)
+	}
+	if _, err := os.Stat(coversDir); !os.IsNotExist(err) {
+		t.Fatal("covers dir should be removed after Evict drops an entry")
+	}
+}

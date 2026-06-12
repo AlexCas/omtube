@@ -1,12 +1,6 @@
-# Lyrics Specification
+# Delta for Lyrics
 
-## Purpose
-
-Obtener la letra de la pista en reproducción desde una API comunitaria sin auth y
-mostrarla; si hay letra sincronizada (.lrc), resaltar la línea según la posición de
-reproducción.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Fetch Lyrics
 
@@ -16,6 +10,7 @@ preferring synced (.lrc) lyrics and falling back to plain text. On a strict
 `/api/get` miss, the system MUST retry the same provider's fuzzy `/api/search` endpoint
 with the same normalized query before declaring "no lyrics". Fetching MUST be
 controllable by a config toggle, and results SHOULD be cached.
+(Previously: queried lrclib `/api/get` only, with the raw title/uploader and no fuzzy fallback.)
 
 #### Scenario: Synced lyrics found
 
@@ -41,37 +36,3 @@ controllable by a config toggle, and results SHOULD be cached.
 - WHEN aún se está resolviendo la letra
 - THEN el sistema reintenta con `/api/search` del proveedor usando la misma consulta normalizada
 - AND se devuelve la letra si `/api/search` encuentra un candidato
-
-### Requirement: Lyrics Unavailable
-
-The system MUST handle API failure or no-match without crashing, indicating that no
-lyrics are available.
-
-#### Scenario: No match
-
-- GIVEN la API no encuentra letra para la pista
-- WHEN se solicita la letra
-- THEN se indica "sin letra" y la reproducción continúa normal
-
-#### Scenario: API down
-
-- GIVEN la API de letras no responde o devuelve error
-- WHEN se solicita la letra
-- THEN se trata como "sin letra" sin bloquear la UI
-
-### Requirement: Synced Line Highlight
-
-The system MUST highlight the lyric line matching the current playback position when
-synced lyrics are available, advancing as playback progresses.
-
-#### Scenario: Highlight advances with playback
-
-- GIVEN hay letra sincronizada cargada
-- WHEN la posición de reproducción avanza
-- THEN la línea resaltada cambia a la correspondiente al tiempo actual
-
-#### Scenario: Seek updates highlight
-
-- GIVEN hay letra sincronizada y el usuario salta de posición
-- WHEN cambia la posición
-- THEN la línea resaltada salta a la correspondiente al nuevo tiempo

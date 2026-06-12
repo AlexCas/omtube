@@ -20,6 +20,7 @@ import (
 	"github.com/alexcasdev/terminaltube/internal/history"
 	"github.com/alexcasdev/terminaltube/internal/logging"
 	"github.com/alexcasdev/terminaltube/internal/lyrics"
+	"github.com/alexcasdev/terminaltube/internal/metadata"
 	"github.com/alexcasdev/terminaltube/internal/player"
 	"github.com/alexcasdev/terminaltube/internal/playlist"
 	"github.com/alexcasdev/terminaltube/internal/presence"
@@ -104,7 +105,10 @@ func buildServices(cfg config.Config, db *storage.DB, logger *zap.Logger) (ui.Se
 	}
 
 	if cfg.LyricsEnabled {
-		svc.Lyrics = lyrics.New(db.Lyrics(), &http.Client{Timeout: 10 * time.Second})
+		lyricsSvc := lyrics.New(db.Lyrics(), &http.Client{Timeout: 10 * time.Second})
+		// Refleja el toggle de configuración en el servicio (WU1 dejó este seam).
+		lyricsSvc.SetSearchFallback(cfg.LyricsSearchFallback)
+		svc.Lyrics = lyricsSvc
 	}
 
 	if cfg.ArtworkEnabled {
@@ -115,7 +119,14 @@ func buildServices(cfg config.Config, db *storage.DB, logger *zap.Logger) (ui.Se
 		if cs, ok := svc.Cache.(*cache.Service); ok {
 			thumb = cs.ThumbPath
 		}
-		svc.Artwork = artworkAdapter{backend: artwork.Detect(), thumb: thumb}
+		// El resolutor de portada real (MusicBrainz + Cover Art Archive) solo se
+		// construye con el toggle activo; en nil el adaptador es byte-idéntico a
+		// la Fase 3 (solo thumbnail).
+		var cover artwork.CoverResolver
+		if cfg.ArtworkCoverArt {
+			cover = artwork.NewCoverResolver(cfg.CacheDir(), &http.Client{Timeout: 10 * time.Second})
+		}
+		svc.Artwork = artworkAdapter{backend: artwork.Detect(), thumb: thumb, cover: cover}
 	}
 
 	if cfg.PresenceActive() {
@@ -136,13 +147,25 @@ func buildServices(cfg config.Config, db *storage.DB, logger *zap.Logger) (ui.Se
 type artworkAdapter struct {
 	backend artwork.Backend
 	thumb   func(id string) (string, bool) // resolutor de miniatura local; nil ⇒ siempre remota
+	cover   artwork.CoverResolver          // resolutor de portada real; nil ⇒ solo thumbnail (Fase 3)
 }
 
+// Render selecciona la fuente de portada con la precedencia: portada real
+// resuelta (MusicBrainz + Cover Art Archive) → miniatura cacheada localmente →
+// URL remota de YouTube. La resolución de red vive aquí, no en Backend.Render,
+// que se mantiene puro. Con cover=nil el comportamiento es byte-idéntico a la
+// Fase 3.
 func (a artworkAdapter) Render(ctx context.Context, track search.Result, w, h int) string {
 	src := "https://i.ytimg.com/vi/" + track.ID + "/hqdefault.jpg"
 	if a.thumb != nil {
 		if local, ok := a.thumb(track.ID); ok {
 			src = local
+		}
+	}
+	if a.cover != nil {
+		artist, title := metadata.Normalize(track)
+		if path, ok := a.cover.Resolve(ctx, artist, title, track.Duration); ok {
+			src = path
 		}
 	}
 	out, _ := a.backend.Render(ctx, src, w, h)
