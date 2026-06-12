@@ -5,6 +5,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/spf13/viper"
 )
@@ -72,6 +73,9 @@ func (c Config) PresenceActive() bool { return c.PresenceEnabled && c.PresenceAp
 
 // SocketPath devuelve la ruta del socket IPC de mpv.
 func (c Config) SocketPath() string {
+	if runtime.GOOS == "windows" {
+		return `\\.\pipe\terminaltube-mpv`
+	}
 	if rt := os.Getenv("XDG_RUNTIME_DIR"); rt != "" {
 		return filepath.Join(rt, "terminaltube-mpv.sock")
 	}
