@@ -63,3 +63,9 @@ func (db *DB) Favorites() *FavoriteRepo { return &FavoriteRepo{db: db.sql} }
 
 // History devuelve el repositorio de historial.
 func (db *DB) History() *HistoryRepo { return &HistoryRepo{db: db.sql} }
+
+// Cache devuelve el repositorio del índice de caché de audio.
+func (db *DB) Cache() *CacheRepo { return &CacheRepo{db: db.sql} }
+
+// Lyrics devuelve el repositorio de caché de letras.
+func (db *DB) Lyrics() *LyricsRepo { return &LyricsRepo{db: db.sql} }
