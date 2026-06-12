@@ -36,3 +36,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+
+      # Publica el manifiesto de Scoop al bucket a partir de los checksums.
+      # Reutiliza el mismo TAP_GITHUB_TOKEN ya que el bucket también vive en GitHub.
+      - name: Publish Scoop manifest
+        run: scripts/update-scoop.sh "${GITHUB_REF_NAME}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
