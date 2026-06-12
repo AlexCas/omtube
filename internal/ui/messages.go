@@ -30,6 +30,10 @@ type playerEventMsg struct{ event player.Event }
 // tickMsg dispara el refresco de la barra de progreso.
 type tickMsg time.Time
 
+// animTickMsg dispara el refresco del visualizador de barras (más frecuente que
+// el tick de progreso para que la animación se vea fluida).
+type animTickMsg time.Time
+
 // posMsg transporta la posición/duración consultadas fuera del bucle Update.
 type posMsg struct{ pos, dur float64 }
 
@@ -145,6 +149,11 @@ func waitForEventCmd(p player.Player) tea.Cmd {
 // tickCmd programa el siguiente refresco de progreso.
 func tickCmd() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
+}
+
+// animTickCmd programa el siguiente frame del visualizador (~8 fps).
+func animTickCmd() tea.Cmd {
+	return tea.Tick(120*time.Millisecond, func(t time.Time) tea.Msg { return animTickMsg(t) })
 }
 
 // fetchPositionCmd consulta posición/duración en un goroutine de Cmd, evitando
