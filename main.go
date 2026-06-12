@@ -29,9 +29,19 @@ import (
 	"github.com/alexcasdev/terminaltube/internal/ui"
 )
 
+// version es la versión del binario. Se sobreescribe en el build del release vía
+// -ldflags (GoReleaser); en builds locales queda como "dev".
+var version = "dev"
+
 func main() {
+	for _, arg := range os.Args[1:] {
+		if arg == "--version" || arg == "-v" {
+			fmt.Println("omusic", version)
+			return
+		}
+	}
 	if err := run(); err != nil {
-		fmt.Fprintln(os.Stderr, "terminaltube:", err)
+		fmt.Fprintln(os.Stderr, "omusic:", err)
 		os.Exit(1)
 	}
 }

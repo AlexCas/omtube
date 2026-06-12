@@ -1,0 +1,61 @@
+# GoReleaser config para Omusic.
+# Build local del release:  TAP_GITHUB_TOKEN=$(gh auth token) GITHUB_TOKEN=$(gh auth token) goreleaser release --clean
+# Validar la config:        goreleaser check
+version: 2
+
+project_name: omusic
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - main: .
+    binary: omusic
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+brews:
+  - name: omusic
+    repository:
+      owner: AlexCas
+      name: homebrew-tap
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/AlexCas/omtube"
+    description: "Reproductor de música TUI que usa YouTube vía yt-dlp y mpv"
+    license: "MIT"
+    # yt-dlp y mpv son obligatorios en runtime; chafa es opcional (panel de portada).
+    dependencies:
+      - name: yt-dlp
+      - name: mpv
+      - name: chafa
+        type: optional
+    install: |
+      bin.install "omusic"
+    test: |
+      assert_match "omusic", shell_output("#{bin}/omusic --version")
