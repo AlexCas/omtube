@@ -11,6 +11,7 @@ type styles struct {
 	dim      lipgloss.Style
 	help     lipgloss.Style
 	errorMsg lipgloss.Style
+	viz      lipgloss.Style
 }
 
 func defaultStyles() styles {
@@ -26,5 +27,6 @@ func defaultStyles() styles {
 		dim:      lipgloss.NewStyle().Foreground(lipgloss.Color("244")),
 		help:     lipgloss.NewStyle().Foreground(lipgloss.Color("240")),
 		errorMsg: lipgloss.NewStyle().Foreground(lipgloss.Color("203")),
+		viz:      lipgloss.NewStyle().Foreground(lipgloss.Color("213")),
 	}
 }

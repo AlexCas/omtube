@@ -68,6 +68,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// El sondeo de posición corre en su propio Cmd para no bloquear Update.
 		return m, tea.Batch(fetchPositionCmd(m.player), tickCmd())
 
+	case animTickMsg:
+		// Avanza la animación del visualizador solo mientras hay reproducción;
+		// en pausa o sin pista el frame se congela y las barras quedan planas.
+		if m.isPlaying() {
+			m.animFrame++
+		}
+		return m, animTickCmd()
+
 	case posMsg:
 		m.pos, m.dur = msg.pos, msg.dur
 		m.advanceLyric()
@@ -101,6 +109,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// isPlaying indica si hay una pista activa que no está en pausa. El
+// visualizador de barras solo se anima en ese estado.
+func (m Model) isPlaying() bool {
+	if _, ok := m.queue.Current(); !ok {
+		return false
+	}
+	return !m.player.Paused()
 }
 
 // advanceLyric recalcula la línea de letra resaltada según la posición actual.

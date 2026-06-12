@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -52,9 +53,55 @@ func (m Model) View() string {
 	// Now playing + progreso.
 	b.WriteString(m.renderNowPlaying())
 	b.WriteString("\n")
-	b.WriteString(m.renderHelp())
+	help := m.renderHelp()
+	b.WriteString(help)
+	b.WriteString("\n")
+	// Visualizador de barras: cubre exactamente el ancho de la línea de
+	// instrucciones y se anima mientras suena la música.
+	b.WriteString(m.renderVisualizer(lipgloss.Width(help)))
 	b.WriteString("\n")
 	return m.center(b.String())
+}
+
+// barLevels son los caracteres de bloque ordenados de menor a mayor altura, que
+// componen cada columna del visualizador.
+var barLevels = []rune{'▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
+
+// renderVisualizer dibuja una fila de barras de ancho width a modo de
+// visualizador decorativo. Mientras hay reproducción las alturas se mueven con
+// animFrame; en pausa o sin pista quedan planas (nivel mínimo).
+func (m Model) renderVisualizer(width int) string {
+	if width <= 0 {
+		return ""
+	}
+	playing := m.isPlaying()
+	var b strings.Builder
+	b.Grow(width * 3)
+	for col := 0; col < width; col++ {
+		level := 0
+		if playing {
+			level = barLevel(col, m.animFrame)
+		}
+		b.WriteRune(barLevels[level])
+	}
+	return m.styles.viz.Render(b.String())
+}
+
+// barLevel calcula la altura (0..len(barLevels)-1) de la columna col en el frame
+// f combinando dos ondas senoidales desfasadas, para un movimiento tipo
+// ecualizador. Es determinista: igual (col, f) ⇒ igual altura.
+func barLevel(col, f int) int {
+	levels := len(barLevels)
+	x, t := float64(col), float64(f)
+	v := math.Sin(x*0.45+t*0.30) + 0.6*math.Sin(x*0.17-t*0.21) // v ∈ [-1.6, 1.6]
+	n := int(math.Round((v + 1.6) / 3.2 * float64(levels-1)))
+	if n < 0 {
+		n = 0
+	}
+	if n > levels-1 {
+		n = levels - 1
+	}
+	return n
 }
 
 // center centra horizontalmente el bloque de la vista dentro del ancho de la

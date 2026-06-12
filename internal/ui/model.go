@@ -119,6 +119,11 @@ type Model struct {
 
 	width, height int
 	quitting      bool
+
+	// animFrame avanza con el tick de animación mientras hay reproducción y
+	// alimenta el visualizador de barras bajo las instrucciones. En pausa o sin
+	// pista no avanza, de modo que las barras quedan planas.
+	animFrame int
 }
 
 // Services agrupa los servicios de enriquecimiento opcionales (Fase 3). Cualquier
@@ -177,5 +182,5 @@ func (i playlistItem) FilterValue() string { return i.pl.Name }
 
 // Init arranca el bucle de eventos del reproductor y el tick de progreso.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(waitForEventCmd(m.player), tickCmd())
+	return tea.Batch(waitForEventCmd(m.player), tickCmd(), animTickCmd())
 }
