@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/alexcasdev/terminaltube/internal/lyrics"
 	"github.com/alexcasdev/terminaltube/internal/player"
 	"github.com/alexcasdev/terminaltube/internal/search"
 )
@@ -69,10 +70,44 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case posMsg:
 		m.pos, m.dur = msg.pos, msg.dur
+		m.advanceLyric()
+		return m, nil
+
+	case lyricsMsg:
+		// Descartar respuestas obsoletas de una pista ya cambiada.
+		if msg.videoID == m.curTrackID {
+			m.curLyrics = msg.lyrics
+			m.lyricLine = -1
+			m.advanceLyric()
+		}
+		return m, nil
+
+	case artworkMsg:
+		if msg.videoID == m.curTrackID {
+			m.curArtwork = msg.art
+		}
+		return m, nil
+
+	case cacheDoneMsg:
+		if msg.err != nil {
+			m.warn("no se pudo cachear la pista: " + msg.err.Error())
+			return m, nil
+		}
+		if m.cachedIDs == nil {
+			m.cachedIDs = make(map[string]bool)
+		}
+		m.cachedIDs[msg.videoID] = true
 		return m, nil
 	}
 
 	return m, nil
+}
+
+// advanceLyric recalcula la línea de letra resaltada según la posición actual.
+func (m *Model) advanceLyric() {
+	if m.curLyrics.Synced {
+		m.lyricLine = m.curLyrics.LineAt(m.pos)
+	}
 }
 
 func (m Model) updateSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -128,7 +163,7 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.queue.Add(track)
 			if !m.started {
 				m.started = true
-				return m, loadTrackCmd(m.player, track)
+				return m, loadTrackCmd(m.player, m.cache, track)
 			}
 			m.status = "Añadido a la cola: " + track.Title
 		}
@@ -146,7 +181,7 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Next):
 		if m.queue.Next() {
 			if cur, ok := m.queue.Current(); ok {
-				return m, loadTrackCmd(m.player, cur)
+				return m, loadTrackCmd(m.player, m.cache, cur)
 			}
 		}
 		return m, nil
@@ -154,7 +189,7 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Prev):
 		if m.queue.Prev() {
 			if cur, ok := m.queue.Current(); ok {
-				return m, loadTrackCmd(m.player, cur)
+				return m, loadTrackCmd(m.player, m.cache, cur)
 			}
 		}
 		return m, nil
@@ -393,7 +428,7 @@ func (m Model) enqueueAndPlay(tracks []search.Result, status string) (tea.Model,
 	if !wasPlaying {
 		m.started = true
 		if cur, ok := m.queue.Current(); ok {
-			return m, loadTrackCmd(m.player, cur)
+			return m, loadTrackCmd(m.player, m.cache, cur)
 		}
 	}
 	return m, nil
@@ -472,14 +507,57 @@ func (m *Model) warn(msg string) {
 
 func (m Model) handlePlayerEvent(msg playerEventMsg) (tea.Model, tea.Cmd) {
 	cmds := []tea.Cmd{waitForEventCmd(m.player)} // seguir escuchando
-	if msg.event.Kind == player.EventEndFile {
+	switch msg.event.Kind {
+	case player.EventEndFile:
 		if m.queue.Next() {
 			if cur, ok := m.queue.Current(); ok {
-				cmds = append(cmds, loadTrackCmd(m.player, cur))
+				cmds = append(cmds, loadTrackCmd(m.player, m.cache, cur))
 			}
 		} else {
 			m.status = "Cola finalizada."
+			// Al detenerse la reproducción se limpia la presencia de Discord para
+			// no dejar una actividad "escuchando" obsoleta hasta salir de la app.
+			if m.presence != nil {
+				m.presence.Clear()
+			}
 		}
+	case player.EventTrackChange:
+		cmds = append(cmds, m.onTrackChange(msg.event.Track)...)
 	}
 	return m, tea.Batch(cmds...)
 }
+
+// onTrackChange reinicia el estado de los paneles de enriquecimiento para la
+// nueva pista y abanica las Cmds de letra/portada/presencia/descarga-de-caché.
+// Las Cmds de servicios apagados (nil) se filtran, de modo que con todos los
+// toggles apagados no se dispara trabajo adicional (paridad con la Fase 2).
+func (m *Model) onTrackChange(track search.Result) []tea.Cmd {
+	m.curTrackID = track.ID
+	m.curLyrics = lyrics.Lyrics{}
+	m.curArtwork = ""
+	m.lyricLine = -1
+
+	var cmds []tea.Cmd
+	if c := fetchLyricsCmd(m.lyrics, track); c != nil {
+		cmds = append(cmds, c)
+	}
+	if c := renderArtworkCmd(m.artwork, track, m.artworkWidth(), m.artworkHeight()); c != nil {
+		cmds = append(cmds, c)
+	}
+	if c := setPresenceCmd(m.presence, track); c != nil {
+		cmds = append(cmds, c)
+	}
+	// Descargar a caché solo si la pista aún no está cacheada.
+	if m.cache != nil {
+		if _, ok := m.cache.Lookup(track.ID); ok {
+			m.cachedIDs[track.ID] = true
+		} else if c := cacheDownloadCmd(m.cache, track); c != nil {
+			cmds = append(cmds, c)
+		}
+	}
+	return cmds
+}
+
+// artworkWidth/artworkHeight dan dimensiones razonables para el panel de portada.
+func (m Model) artworkWidth() int  { return 24 }
+func (m Model) artworkHeight() int { return 12 }

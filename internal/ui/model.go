@@ -2,6 +2,8 @@
 package ui
 
 import (
+	"context"
+
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -10,12 +12,41 @@ import (
 	"github.com/alexcasdev/terminaltube/internal/config"
 	"github.com/alexcasdev/terminaltube/internal/favorites"
 	"github.com/alexcasdev/terminaltube/internal/history"
+	"github.com/alexcasdev/terminaltube/internal/lyrics"
 	"github.com/alexcasdev/terminaltube/internal/player"
 	"github.com/alexcasdev/terminaltube/internal/playlist"
 	"github.com/alexcasdev/terminaltube/internal/queue"
 	"github.com/alexcasdev/terminaltube/internal/search"
 	"github.com/alexcasdev/terminaltube/internal/storage"
 )
+
+// Servicios de enriquecimiento desacoplados tras interfaces para poder dejarlos
+// en nil cuando el toggle está apagado (degradación a la conducta de la Fase 2)
+// e inyectar dobles en tests.
+
+// cacheService resuelve y descarga archivos de audio cacheados. Un valor nil
+// equivale a "caché desactivada".
+type cacheService interface {
+	Lookup(id string) (string, bool)
+	Download(ctx context.Context, r search.Result) (string, error)
+}
+
+// lyricsService resuelve la letra de una pista. Un valor nil ⇒ panel apagado.
+type lyricsService interface {
+	Fetch(ctx context.Context, videoID, title, artist string, dur int) (lyrics.Lyrics, error)
+}
+
+// artworkService renderiza la portada de una pista. Un valor nil ⇒ panel apagado.
+type artworkService interface {
+	Render(ctx context.Context, track search.Result, w, h int) string
+}
+
+// presenceService publica la pista actual como presencia de Discord. Un valor
+// nil ⇒ presencia desactivada.
+type presenceService interface {
+	Set(title, artist string)
+	Clear()
+}
 
 type mode int
 
@@ -48,6 +79,12 @@ type Model struct {
 	favorites *favorites.Service
 	logger    *zap.Logger
 
+	// Servicios de enriquecimiento (Fase 3). nil ⇒ feature apagada.
+	cache    cacheService
+	lyrics   lyricsService
+	artwork  artworkService
+	presence presenceService
+
 	keys   keyMap
 	styles styles
 	input  textinput.Model
@@ -72,12 +109,31 @@ type Model struct {
 	pickerTrack  search.Result
 	pickerReturn mode // modo al que volver tras cerrar el picker
 
+	// Estado de los paneles de enriquecimiento (Fase 3). Indexados por video id
+	// para descartar respuestas que llegan tras un cambio de pista.
+	curTrackID string          // id de la pista en reproducción
+	curLyrics  lyrics.Lyrics   // letra de la pista actual
+	curArtwork string          // portada renderizada de la pista actual
+	lyricLine  int             // índice de la línea de letra resaltada (-1 = ninguna)
+	cachedIDs  map[string]bool // ids con archivo local en caché (indicador)
+
 	width, height int
 	quitting      bool
 }
 
-// New construye el modelo inicial.
-func New(cfg config.Config, s search.Searcher, p player.Player, h *history.History, pl *playlist.Service, fav *favorites.Service, logger *zap.Logger) Model {
+// Services agrupa los servicios de enriquecimiento opcionales (Fase 3). Cualquier
+// campo nil deja su feature apagada: con todos en nil la UI se comporta
+// exactamente como en la Fase 2.
+type Services struct {
+	Cache    cacheService
+	Lyrics   lyricsService
+	Artwork  artworkService
+	Presence presenceService
+}
+
+// New construye el modelo inicial. svc agrupa los servicios de enriquecimiento;
+// el cero-value (todos nil) reproduce la conducta de la Fase 2.
+func New(cfg config.Config, s search.Searcher, p player.Player, h *history.History, pl *playlist.Service, fav *favorites.Service, svc Services, logger *zap.Logger) Model {
 	in := textinput.New()
 	in.Placeholder = "Buscar canción…"
 	in.Prompt = "🔎 "
@@ -97,11 +153,17 @@ func New(cfg config.Config, s search.Searcher, p player.Player, h *history.Histo
 		history:   h,
 		playlists: pl,
 		favorites: fav,
+		cache:     svc.Cache,
+		lyrics:    svc.Lyrics,
+		artwork:   svc.Artwork,
+		presence:  svc.Presence,
 		logger:    logger,
 		keys:      defaultKeys(),
 		styles:    defaultStyles(),
 		input:     in,
 		picker:    picker,
+		lyricLine: -1,
+		cachedIDs: make(map[string]bool),
 		status:    "Pulsa / para buscar · L biblioteca.",
 	}
 }

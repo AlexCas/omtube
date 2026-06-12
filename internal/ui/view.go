@@ -42,6 +42,13 @@ func (m Model) View() string {
 	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, results, q))
 	b.WriteString("\n")
 
+	// Paneles de enriquecimiento (letra/portada). Solo se dibujan cuando su
+	// servicio está activo: con los toggles apagados la vista es la de la Fase 2.
+	if enrich := m.renderEnrichment(); enrich != "" {
+		b.WriteString(enrich)
+		b.WriteString("\n")
+	}
+
 	// Now playing + progreso.
 	b.WriteString(m.renderNowPlaying())
 	b.WriteString("\n")
@@ -64,7 +71,7 @@ func (m Model) renderResults() string {
 		} else {
 			line = "  " + line
 		}
-		b.WriteString(truncate(line, 46))
+		b.WriteString(m.cacheMark(r.ID) + truncate(line, 44))
 		b.WriteString("\n")
 	}
 	return m.styles.panel.Width(48).Render(b.String())
@@ -85,7 +92,7 @@ func (m Model) renderQueue() string {
 			prefix = m.styles.current.Render("▶ ")
 			line = m.styles.current.Render(line)
 		}
-		b.WriteString(prefix + truncate(line, 30))
+		b.WriteString(m.cacheMark(r.ID) + prefix + truncate(line, 28))
 		b.WriteString("\n")
 	}
 	return m.styles.panel.Width(36).Render(b.String())
@@ -204,6 +211,111 @@ func trackLines(tracks []search.Result) []string {
 		out = append(out, truncate(line, 60))
 	}
 	return out
+}
+
+// cacheMark devuelve un indicador de "cacheada" para la pista id, o dos espacios
+// de alineación cuando no lo está o la caché está desactivada. Mantener un ancho
+// fijo evita que las filas se descoloquen.
+func (m Model) cacheMark(id string) string {
+	if m.cache != nil && id != "" && m.cachedIDs[id] {
+		return m.styles.current.Render("⤓ ")
+	}
+	return "  "
+}
+
+// renderEnrichment compone los paneles de letra y portada lado a lado. Devuelve
+// "" cuando ninguno de los dos servicios está activo (paridad con la Fase 2).
+func (m Model) renderEnrichment() string {
+	hasLyrics := m.lyrics != nil
+	hasArtwork := m.artwork != nil
+	if !hasLyrics && !hasArtwork {
+		return ""
+	}
+	var panels []string
+	if hasLyrics {
+		panels = append(panels, m.renderLyricsPanel())
+	}
+	if hasArtwork {
+		panels = append(panels, m.renderArtworkPanel())
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, panels...)
+}
+
+// renderLyricsPanel dibuja la letra de la pista actual; resalta la línea activa
+// cuando es sincronizada y muestra "sin letra" cuando no hay ninguna.
+func (m Model) renderLyricsPanel() string {
+	var b strings.Builder
+	b.WriteString(m.styles.heading.Render("Letra"))
+	b.WriteString("\n")
+
+	switch {
+	case m.curLyrics.Empty():
+		b.WriteString(m.styles.dim.Render("sin letra"))
+	case m.curLyrics.Synced:
+		b.WriteString(m.renderSyncedLyrics())
+	default:
+		b.WriteString(truncateLines(m.curLyrics.Plain, 48, 8))
+	}
+	return m.styles.panel.Width(50).Render(b.String())
+}
+
+// renderSyncedLyrics muestra una ventana de líneas alrededor de la línea activa,
+// resaltándola.
+func (m Model) renderSyncedLyrics() string {
+	const window = 7
+	lines := m.curLyrics.Lines
+	if len(lines) == 0 {
+		return m.styles.dim.Render("sin letra")
+	}
+	cur := m.lyricLine
+	start := cur - window/2
+	if start < 0 {
+		start = 0
+	}
+	end := start + window
+	if end > len(lines) {
+		end = len(lines)
+	}
+	var b strings.Builder
+	for i := start; i < end; i++ {
+		text := truncate(lines[i].Text, 46)
+		if i == cur {
+			b.WriteString(m.styles.current.Render("▶ " + text))
+		} else {
+			b.WriteString("  " + m.styles.dim.Render(text))
+		}
+		if i < end-1 {
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
+// renderArtworkPanel dibuja la portada renderizada de la pista actual, o un
+// estado de degradación cuando no hay portada.
+func (m Model) renderArtworkPanel() string {
+	var b strings.Builder
+	b.WriteString(m.styles.heading.Render("Portada"))
+	b.WriteString("\n")
+	if m.curArtwork == "" {
+		b.WriteString(m.styles.dim.Render("[sin portada]"))
+	} else {
+		b.WriteString(m.curArtwork)
+	}
+	return m.styles.panel.Width(28).Render(b.String())
+}
+
+// truncateLines recorta un bloque de texto a maxLines líneas, cada una a maxCols
+// columnas, para encajar en el panel sin desbordar.
+func truncateLines(s string, maxCols, maxLines int) string {
+	raw := strings.Split(s, "\n")
+	if len(raw) > maxLines {
+		raw = raw[:maxLines]
+	}
+	for i := range raw {
+		raw[i] = truncate(raw[i], maxCols)
+	}
+	return strings.Join(raw, "\n")
 }
 
 func progressBar(pos, dur float64, width int) string {

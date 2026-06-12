@@ -1,6 +1,8 @@
 // Package player reproduce audio controlando un proceso mpv por IPC.
 package player
 
+import "github.com/alexcasdev/terminaltube/internal/search"
+
 // EventKind clasifica los eventos emitidos por el reproductor.
 type EventKind int
 
@@ -9,11 +11,19 @@ const (
 	EventEndFile EventKind = iota
 	// EventLoaded indica que una nueva pista empezó a cargarse/reproducirse.
 	EventLoaded
+	// EventTrackChange indica que una nueva pista comenzó a cargarse; lleva el
+	// metadato de la pista y la fuente cargada (archivo local o URL) para que los
+	// suscriptores (letra, portada, presencia de Discord) reaccionen.
+	EventTrackChange
 )
 
-// Event es una notificación asíncrona del reproductor hacia la UI.
+// Event es una notificación asíncrona del reproductor hacia la UI. Para
+// EventTrackChange, Track contiene el metadato de la pista y Source la fuente
+// cargada (ruta de archivo local o URL de YouTube).
 type Event struct {
-	Kind EventKind
+	Kind   EventKind
+	Track  search.Result
+	Source string
 }
 
 // State es una instantánea del estado de reproducción.
@@ -26,8 +36,13 @@ type State struct {
 
 // Player controla la reproducción de audio.
 type Player interface {
-	// Load carga y reproduce la pista identificada por su URL/ID de YouTube.
-	Load(url string) error
+	// Load carga y reproduce la fuente indicada (ruta de archivo local o URL/ID
+	// de YouTube). Emite EventLoaded.
+	Load(src string) error
+	// LoadTrack carga la fuente src (archivo local cacheado o URL de YouTube) y
+	// emite EventTrackChange con el metadato track, para que los suscriptores
+	// (letra/portada/presencia) reaccionen al cambio de pista.
+	LoadTrack(src string, track search.Result) error
 	// TogglePause alterna entre pausa y reproducción.
 	TogglePause() error
 	// AddVolume ajusta el volumen en delta (clamp 0–130) y devuelve el nuevo valor.
