@@ -1,4 +1,4 @@
-# TerminalTube
+# Omusic
 
 Reproductor de música TUI para Linux/Omarchy que usa YouTube como fuente, vía
 [`yt-dlp`](https://github.com/yt-dlp/yt-dlp) para buscar/resolver audio y
