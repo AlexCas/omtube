@@ -1,7 +1,0 @@
-phase: propose
-status: completed
-history:
-  - {phase: explore, status: completed, ts: "2026-06-11T08:10:00Z"}
-  - {phase: propose, status: completed, ts: "2026-06-11T08:15:00Z"}
-# Encolada: no iniciar hasta cerrar add-library-and-persistence (Fase 2).
-# Siguiente fase a ejecutar cuando se retome: spec

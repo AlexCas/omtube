@@ -1,0 +1,25 @@
+phase: archive
+status: completed
+history:
+  - {phase: explore, status: completed, ts: "2026-06-11T08:10:00Z"}
+  - {phase: propose, status: completed, ts: "2026-06-11T08:15:00Z"}
+  - {phase: spec, status: in_progress, ts: "2026-06-12T01:32:01Z"}
+  - {phase: spec, status: completed, ts: "2026-06-12T01:34:15Z"}
+  - {phase: design, status: in_progress, ts: "2026-06-12T01:34:54Z"}
+  - {phase: design, status: completed, ts: "2026-06-12T01:37:58Z"}
+  - {phase: tasks, status: in_progress, ts: "2026-06-12T01:41:35Z"}
+  - {phase: tasks, status: completed, ts: "2026-06-12T01:43:27Z"}
+  - {phase: apply, status: in_progress, ts: "2026-06-12T01:46:48Z"}
+  - {phase: apply, status: completed, ts: "2026-06-12T02:09:03Z"}
+  - {phase: verify, status: in_progress, ts: "2026-06-12T02:09:03Z"}
+  - {phase: verify, status: completed, ts: "2026-06-12T02:14:00Z"}
+  - {phase: judge, status: in_progress, ts: "2026-06-12T02:14:00Z"}
+  - {phase: judge, status: completed, ts: "2026-06-12T02:31:27Z"}
+  - {phase: archive, status: in_progress, ts: "2026-06-12T02:31:27Z"}
+  - {phase: archive, status: completed, ts: "2026-06-12T02:31:27Z"}
+# Fase 3 COMPLETA: ciclo SDD cerrado. Specs canonicos sincronizados (4 nuevas + 2 modificadas); change archivado.
+# Judge APPROVED round 2 (C1 critico + W1/W2/W4 corregidos; W3 deuda teatest diferida).
+# Apply en cadena de 3 slices (PR1 cache/storage -> PR2 lyrics/artwork/presence -> PR3 integracion).
+# Rama: feature/media-enrichment.
+# Fase 2 (add-library-and-persistence) cerrada y archivada -> Fase 3 desbloqueada.
+# Preflight de sesion: A1 interactive, B1 openspec, C1 ask-always, D1 400 lineas.

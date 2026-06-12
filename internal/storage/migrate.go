@@ -46,6 +46,30 @@ CREATE TABLE history (
 	FOREIGN KEY (video_id) REFERENCES tracks(video_id) ON DELETE CASCADE
 );
 `,
+	// Migración 2: índice de caché de audio y caché de letras. Solo AÑADE
+	// tablas; los datos de la Fase 2 quedan intactos. cache_entries indexa los
+	// archivos de audio descargados al directorio XDG cache; lyrics_cache guarda
+	// las letras resueltas para evitar peticiones HTTP repetidas. Ambas tienen
+	// FK a tracks ON DELETE CASCADE, de modo que borrar una pista limpia su caché.
+	`
+CREATE TABLE cache_entries (
+	video_id   TEXT PRIMARY KEY,
+	path       TEXT    NOT NULL,
+	size_bytes INTEGER NOT NULL DEFAULT 0,
+	ext        TEXT    NOT NULL DEFAULT '',
+	created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+	last_used  TEXT    NOT NULL DEFAULT (datetime('now')),
+	FOREIGN KEY (video_id) REFERENCES tracks(video_id) ON DELETE CASCADE
+);
+
+CREATE TABLE lyrics_cache (
+	video_id   TEXT PRIMARY KEY,
+	synced     INTEGER NOT NULL DEFAULT 0,
+	body       TEXT    NOT NULL DEFAULT '',
+	fetched_at TEXT    NOT NULL DEFAULT (datetime('now')),
+	FOREIGN KEY (video_id) REFERENCES tracks(video_id) ON DELETE CASCADE
+);
+`,
 }
 
 // migrate aplica todas las migraciones cuya versión es mayor que la

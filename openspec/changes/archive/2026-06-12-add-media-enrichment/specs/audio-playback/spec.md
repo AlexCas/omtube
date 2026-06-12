@@ -1,35 +1,14 @@
-# Audio Playback Specification
+# Delta for audio-playback
 
-## Purpose
-
-Reproducir audio de YouTube controlando un proceso `mpv` único mediante IPC sobre
-socket Unix, exponiendo control de transporte y estado de reproducción a la app.
-
-## Requirements
-
-### Requirement: Single mpv via IPC
-
-The system MUST launch one `mpv` instance in idle mode with an IPC server socket and
-control it with JSON commands, reusing the same process across tracks.
-
-#### Scenario: Start player
-
-- GIVEN mpv está disponible en PATH
-- WHEN la app arranca
-- THEN se lanza `mpv --idle --no-video --input-ipc-server=<sock>`
-- AND la app se conecta al socket
-
-#### Scenario: mpv missing
-
-- GIVEN mpv no está en PATH
-- WHEN la app arranca
-- THEN se reporta un error legible y la app no intenta reproducir
+## MODIFIED Requirements
 
 ### Requirement: Load and Transport Control
 
 The system MUST load a track via `loadfile` and control pause and volume via
 `set_property`. When a valid cached local file exists for the track, the system MUST
 load that local file instead of resolving/streaming the YouTube id.
+(Previously: siempre cargaba por id de YouTube; ahora prioriza el archivo cacheado si
+existe.)
 
 #### Scenario: Play a track
 
@@ -55,6 +34,8 @@ load that local file instead of resolving/streaming the YouTube id.
 The system MUST expose current position/duration and emit an event when a track ends,
 over an event channel. The system MUST also emit a track-change event when a new track
 starts loading, so subscribers (lyrics, artwork, Discord presence) can react.
+(Previously: solo exponía posición/duración y evento de fin; ahora también emite evento
+de cambio de pista.)
 
 #### Scenario: Track ends
 

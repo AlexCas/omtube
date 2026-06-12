@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"sync"
 	"time"
+
+	"github.com/alexcasdev/terminaltube/internal/search"
 )
 
 // MPV controla un proceso mpv en modo idle a través de su socket IPC JSON.
@@ -176,9 +178,11 @@ func (m *MPV) command(args ...interface{}) (json.RawMessage, error) {
 	}
 }
 
-// Load reproduce la URL indicada (mpv resuelve el audio con su hook yt-dlp).
-func (m *MPV) Load(url string) error {
-	if _, err := m.command("loadfile", url, "replace"); err != nil {
+// Load reproduce la fuente indicada: una ruta de archivo local cacheado o una
+// URL/ID de YouTube (mpv resuelve el audio remoto con su hook yt-dlp). Para
+// ambos casos basta loadfile, que acepta tanto rutas locales como URLs.
+func (m *MPV) Load(src string) error {
+	if _, err := m.command("loadfile", src, "replace"); err != nil {
 		return err
 	}
 	m.mu.Lock()
@@ -186,6 +190,17 @@ func (m *MPV) Load(url string) error {
 	m.mu.Unlock()
 	_, _ = m.command("set_property", "pause", false)
 	m.emit(Event{Kind: EventLoaded})
+	return nil
+}
+
+// LoadTrack carga la fuente src (archivo local o URL de YouTube) y, al iniciar
+// la nueva pista, emite EventTrackChange con su metadato para que la UI dispare
+// la obtención de letra/portada y actualice la presencia de Discord.
+func (m *MPV) LoadTrack(src string, track search.Result) error {
+	if err := m.Load(src); err != nil {
+		return err
+	}
+	m.emit(Event{Kind: EventTrackChange, Track: track, Source: src})
 	return nil
 }
 

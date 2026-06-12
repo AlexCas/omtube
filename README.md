@@ -81,15 +81,43 @@ avanza automáticamente.
   volume: 70
   mpv_path: mpv
   ytdlp_path: yt-dlp
+
+  # Enriquecimiento (Fase 3). Todos los toggles son opcionales; con todos
+  # apagados la app se comporta exactamente como en la Fase 2.
+  cache:
+    enabled: true        # descarga el audio a disco para reproducirlo sin re-streamear
+    max_size_mb: 1024    # límite de tamaño total de la caché (<=0 sin límite)
+    max_age_days: 30     # antigüedad máxima por entrada (<=0 sin límite)
+  lyrics:
+    enabled: true        # panel de letra (lrclib); resalta la línea si es sincronizada
+  artwork:
+    enabled: true        # panel de portada (chafa; degrada a placeholder si no hay chafa)
+  presence:
+    enabled: false       # presencia "escuchando" en Discord
+    app_id: ""           # requerido: tu propia Discord Application ID (sin app_id queda inactiva)
   ```
 - Biblioteca (playlists, favoritos, historial): `~/.local/share/terminaltube/library.db` (SQLite)
+- Caché de audio: `~/.cache/terminaltube/audio/` (vaciable con `rm -rf ~/.cache/terminaltube/`)
 - Historial legado: `~/.local/share/terminaltube/history.json` se importa una sola vez a `library.db` y se conserva como `history.json.bak`
 - Logs: `~/.local/state/terminaltube/terminaltube.log`
+
+### Paneles de enriquecimiento
+
+- **Letra:** se muestra bajo los paneles de resultados/cola cuando `lyrics.enabled`. Si la
+  letra es sincronizada, la línea actual se resalta según la posición de reproducción; si
+  no hay letra disponible, muestra `sin letra`.
+- **Portada:** se muestra cuando `artwork.enabled`, renderizada con `chafa` (bloques/ASCII).
+  Reutiliza la miniatura cacheada localmente cuando existe y solo descarga la miniatura
+  remota de YouTube ante un miss. Si `chafa` no está instalado degrada a `[sin portada]`.
+  El render nativo kitty/sixel es una mejora futura: actualmente la app usa chafa o degrada
+  sin portada, y la detección nunca selecciona un backend que no pueda dibujar.
+- **Indicador de caché:** las pistas con archivo local en caché muestran un `⤓` a la
+  izquierda en los paneles de resultados y de cola.
 
 ## Tests
 
 ```bash
-go test ./...                      # unitarios (queue, search, history)
+go test ./...                      # unitarios (queue, search, history, caché, letra, portada, presencia, UI)
 go test -tags live ./internal/player/   # IPC contra mpv real
 ```
 
