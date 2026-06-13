@@ -17,7 +17,7 @@ func (m Model) View() string {
 		return "¡Hasta luego!\n"
 	}
 
-	if m.mode == modePicker {
+	if m.mode == modePicker || m.mode == modeLyricsPicker {
 		return m.picker.View()
 	}
 
@@ -29,8 +29,8 @@ func (m Model) View() string {
 	b.WriteString(m.styles.title.Render("🎵 Omusic"))
 	b.WriteString("\n\n")
 
-	// Barra de búsqueda o estado.
-	if m.mode == modeSearch {
+	// Barra de búsqueda/prompt o estado.
+	if m.isInputMode() {
 		b.WriteString(m.input.View())
 	} else {
 		b.WriteString(m.styles.dim.Render(m.status))
@@ -174,9 +174,19 @@ func (m Model) renderNowPlaying() string {
 	)
 }
 
+// isInputMode indica si el modo actual usa el input de texto compartido (búsqueda
+// o cualquiera de los prompts de URL/importación/letra), para dibujarlo en la vista.
+func (m Model) isInputMode() bool {
+	switch m.mode {
+	case modeSearch, modeURLInput, modeImportURL, modeImportName, modeLyricsSearch:
+		return true
+	}
+	return false
+}
+
 func (m Model) renderHelp() string {
 	return m.styles.help.Render(
-		"/ buscar · enter encolar · espacio play/pausa · n/p sig/ant · +/- volumen · f favorito · a +playlist · L biblioteca · q salir")
+		"/ buscar · u URL · i importar · enter encolar · espacio play/pausa · n/p sig/ant · y letra · C limpiar · f favorito · a +playlist · L biblioteca · q salir")
 }
 
 // renderLibrary dibuja el modo biblioteca con sus tres secciones (playlists,

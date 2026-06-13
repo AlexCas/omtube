@@ -47,6 +47,66 @@ func doSearchCmd(s search.Searcher, q string, n int) tea.Cmd {
 	}
 }
 
+// urlResolvedMsg transporta la pista resuelta desde una URL de vídeo.
+type urlResolvedMsg struct {
+	track search.Result
+	err   error
+}
+
+// resolveURLCmd resuelve una URL de vídeo de YouTube a una pista en segundo plano.
+func resolveURLCmd(r search.Resolver, rawURL string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		track, err := r.Resolve(ctx, rawURL)
+		return urlResolvedMsg{track: track, err: err}
+	}
+}
+
+// playlistResolvedMsg transporta las pistas y el título de una playlist resuelta.
+type playlistResolvedMsg struct {
+	tracks []search.Result
+	title  string
+	err    error
+}
+
+// resolvePlaylistCmd resuelve una URL de playlist de YouTube en segundo plano.
+func resolvePlaylistCmd(r search.PlaylistResolver, rawURL string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		tracks, title, err := r.ResolvePlaylist(ctx, rawURL)
+		return playlistResolvedMsg{tracks: tracks, title: title, err: err}
+	}
+}
+
+// lyricsCandidatesMsg transporta los candidatos de una búsqueda manual de letra.
+type lyricsCandidatesMsg struct {
+	cands []lyrics.Candidate
+	err   error
+}
+
+// searchLyricsCmd ejecuta la búsqueda manual de letra en segundo plano.
+func searchLyricsCmd(l lyricsService, query string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+		defer cancel()
+		cands, err := l.Search(ctx, query)
+		return lyricsCandidatesMsg{cands: cands, err: err}
+	}
+}
+
+// selectLyricsCmd fija el candidato elegido para la pista (persiste la referencia)
+// y emite un lyricsMsg con la letra resultante para refrescar el panel.
+func selectLyricsCmd(l lyricsService, track search.Result, c lyrics.Candidate) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+		defer cancel()
+		ly, _ := l.SelectCandidate(ctx, track, c)
+		return lyricsMsg{videoID: track.ID, lyrics: ly}
+	}
+}
+
 // lyricsMsg transporta la letra resuelta para una pista (vacía ⇒ "sin letra").
 type lyricsMsg struct {
 	videoID string

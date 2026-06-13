@@ -60,23 +60,23 @@ Cada PR construye y `go test ./...` en verde antes del siguiente.
 
 ## Phase 3: UI + Wiring + Docs (PR 3)
 
-- [ ] 3.1 Modify `internal/ui/keys.go`: teclas `AddFromURL`, `ImportPlaylist`,
+- [x] 3.1 Modify `internal/ui/keys.go`: teclas `AddFromURL`, `ImportPlaylist`,
   `LyricsSearch`, `ClearQueue` (propuesta: `u`, `i`, `y`, `C`).
-- [ ] 3.2 Modify `internal/ui/model.go`: modos `modeURLInput`, `modeImportURL`,
+- [x] 3.2 Modify `internal/ui/model.go`: modos `modeURLInput`, `modeImportURL`,
   `modeImportName`, `modeLyricsSearch`; estado intermedio (tracks importadas pendientes de
   nombre, candidatos de letra) y reuso de `input`/`picker`.
-- [ ] 3.3 Modify `internal/ui/messages.go`: `resolveURLCmd`/`urlResolvedMsg`,
+- [x] 3.3 Modify `internal/ui/messages.go`: `resolveURLCmd`/`urlResolvedMsg`,
   `resolvePlaylistCmd`/`playlistResolvedMsg`, `lyricsSearchCmd`/`lyricsCandidatesMsg`,
   `selectLyricsCmd` (reusa `lyricsMsg`).
-- [ ] 3.4 Modify `internal/ui/update.go`: handlers de los nuevos modos; en URL resuelta:
+- [x] 3.4 Modify `internal/ui/update.go`: handlers de los nuevos modos; en URL resuelta:
   `queue.Add` + `results=[track]` + arranque si `!started`; import bifásico (URL→nombre→
   `Create`+`Add`*); selección de candidato persiste y actualiza panel; `ClearQueue`:
   `queue.Clear()`+`player.Stop()`+reset `curTrackID`/`curLyrics`/`curArtwork`/`started`.
-- [ ] 3.5 Modify `internal/ui/view.go`: render de los nuevos modos (prompts/listas) y
+- [x] 3.5 Modify `internal/ui/view.go`: render de los nuevos modos (prompts/listas) y
   actualizar la línea de ayuda de teclas.
-- [ ] 3.6 Modify `main.go` si hace falta: nada de config nuevo; verificar wiring de
+- [x] 3.6 Modify `main.go` si hace falta: nada de config nuevo; verificar wiring de
   `Resolver`/`PlaylistResolver` hacia `ui.New`.
-- [ ] 3.7 Modify `README.md`: documentar teclas y flujos (añadir por URL, importar
+- [x] 3.7 Modify `README.md`: documentar teclas y flujos (añadir por URL, importar
   playlist, buscar letra, limpiar cola).
 
 ## Phase 4: Testing
@@ -92,12 +92,12 @@ Cada PR construye y `go test ./...` en verde antes del siguiente.
 - [x] 4.5 Modify `internal/lyrics/lyrics_test.go` (`httptest.Server`): `Search` candidatos;
   `SelectCandidate` carga+persiste `query`/`provider_id`; `Fetch` reusa la referencia
   guardada antes que la consulta automática.
-- [ ] 4.6 Modify `internal/ui/update_test.go`: `Update` de modos nuevos (URL/import/letra) y
+- [x] 4.6 Modify `internal/ui/update_test.go`: `Update` de modos nuevos (URL/import/letra) y
   `ClearQueue` (cola vacía, panels reseteados).
 
 ## Verification
 
-- [ ] `go build ./...` en verde.
-- [ ] `go test ./...` en verde.
+- [x] `go build ./...` en verde.
+- [x] `go test ./...` en verde.
 - [ ] Smoke manual de TUI: URL→cola(+playlist), import→playlist, letra manual→persiste/
   reusa, limpiar→vacía+para.

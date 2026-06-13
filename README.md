@@ -44,17 +44,22 @@ omusic
 
 1. Pulsa `/` para buscar, escribe el nombre de la canción y `Enter`.
 2. Mueve el cursor con `↑/↓` (o `k/j`) y `Enter` para encolar/reproducir.
+3. O pulsa `u` y pega una URL de YouTube para encolarla directamente.
 
 ### Atajos
 
 | Tecla     | Acción          |
 |-----------|-----------------|
 | `/`       | Buscar          |
+| `u`       | Añadir por URL de vídeo (la encola; luego `a` para añadirla a una playlist) |
+| `i`       | Importar una playlist de YouTube por URL (pide un nombre local) |
 | `Enter`   | Encolar / reproducir |
 | `Espacio` | Play / Pausa    |
 | `n`       | Siguiente       |
 | `p`       | Anterior        |
 | `+` / `-` | Volumen ± 5     |
+| `y`       | Buscar la letra manualmente y elegir la correcta (se recuerda para la próxima vez) |
+| `C`       | Limpiar la cola y detener la reproducción |
 | `f`       | Marcar / desmarcar favorito de la pista seleccionada |
 | `a`       | Añadir la pista seleccionada a una playlist |
 | `L`       | Abrir / cerrar la biblioteca (playlists, favoritos, historial) |
@@ -116,7 +121,9 @@ avanza automáticamente.
 
 - **Letra:** se muestra bajo los paneles de resultados/cola cuando `lyrics.enabled`. Si la
   letra es sincronizada, la línea actual se resalta según la posición de reproducción; si
-  no hay letra disponible, muestra `sin letra`.
+  no hay letra disponible, muestra `sin letra`. Con `y` puedes buscarla manualmente
+  (teclea una consulta, elige el candidato correcto): la referencia se guarda vinculada a
+  la canción y se reutiliza automáticamente al volver a reproducirla.
 - **Portada:** se muestra cuando `artwork.enabled`, renderizada con `chafa` (bloques/ASCII).
   Reutiliza la miniatura cacheada localmente cuando existe y solo descarga la miniatura
   remota de YouTube ante un miss. Si `chafa` no está instalado degrada a `[sin portada]`.
