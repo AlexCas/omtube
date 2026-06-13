@@ -1,0 +1,30 @@
+change: add-enrichment-beside-queue
+phase: archive
+status: completed
+fast_tracked: true
+history:
+  - phase: explore
+    status: completed
+    ts: "2026-06-13T00:00:00Z"
+    note: "Exploration complete. Recommended Approach A: guard-and-join in View(). Ready for proposal."
+  - phase: apply
+    status: completed
+    ts: "2026-06-13T06:00:00Z"
+    note: >
+      Fast-tracked per human decision (5-line layout change, no model/update
+      logic). View() now joins queue + enrichment into one horizontal row
+      (queue | lyrics | cover) with a guard so the toggle-off case stays
+      queue-only (no phantom JoinHorizontal column). Added regression test
+      TestEnrichmentPanelsBesideQueue; TestToggleOffParity still passes.
+      build/vet/gofmt/test all green.
+  - phase: verify
+    status: completed
+    ts: "2026-06-13T06:05:00Z"
+    note: "Verified by build/vet/test green + the new same-row regression test. No formal verify-report (fast-track)."
+  - phase: archive
+    status: completed
+    ts: "2026-06-13T06:10:00Z"
+    note: >
+      Delta merged into openspec/specs/tui-shell/spec.md (MODIFIED "Results and
+      Queue Panels" + ADDED scenario "Enrichment panels beside the queue").
+      Fast-track skipped formal propose/spec/design/tasks/judge ceremony.

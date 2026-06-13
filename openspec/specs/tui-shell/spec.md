@@ -79,7 +79,10 @@ the current track. The results panel MUST NOT be drawn in the main view. Enterin
 search mode (`/`) MUST present a fresh search input and MUST NOT reopen the previous
 results; submitting a non-empty query MUST run a new search and rebuild the results
 modal from scratch, while submitting an empty query MUST start no search. There is
-no persistent "reopen last results" affordance (D2).
+no persistent "reopen last results" affordance (D2). When the lyrics and/or
+artwork enrichment services are active, their panels MUST be drawn in the same
+horizontal row as the queue (queue | lyrics | cover) rather than stacked below
+it; when both enrichment services are off, the row MUST contain only the queue.
 (Previously: results and the queue were drawn side-by-side as always-visible panels in the main view.)
 
 #### Scenario: Enqueue from results
@@ -94,6 +97,13 @@ no persistent "reopen last results" affordance (D2).
 - WHEN no modal is active
 - THEN the queue is shown as a full-size inline panel
 - AND the results panel is not drawn in the main view
+
+#### Scenario: Enrichment panels beside the queue
+
+- GIVEN the TUI is in the main view with the lyrics and/or artwork services active
+- WHEN the main view is rendered
+- THEN the lyrics and cover panels are drawn in the same horizontal row as the queue (queue | lyrics | cover)
+- AND when both enrichment services are off the row contains only the queue
 
 #### Scenario: Opening search does not reopen previous results
 

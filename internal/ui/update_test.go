@@ -136,6 +136,28 @@ func TestToggleOffParity_NoEnrichmentPanels(t *testing.T) {
 	}
 }
 
+// TestEnrichmentPanelsBesideQueue verifica que, con los servicios activos, la
+// letra y la portada se dibujan en la MISMA fila que la cola (Cola | Letra |
+// Portada) y no apiladas debajo: la fila de encabezados contiene "Cola" y
+// "Letra" juntos.
+func TestEnrichmentPanelsBesideQueue(t *testing.T) {
+	m := newTestModel(t, Services{Lyrics: fakeLyrics{}, Artwork: fakeArtwork{art: "ART"}})
+	m.queue.Add(search.Result{ID: "abc", Title: "Song"})
+	m.curArtwork = "ART"
+
+	out := m.View()
+	sameRow := false
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "Cola") && strings.Contains(line, "Letra") {
+			sameRow = true
+			break
+		}
+	}
+	if !sameRow {
+		t.Fatalf("esperaba 'Cola' y 'Letra' en la misma fila (layout horizontal); got:\n%s", out)
+	}
+}
+
 func TestToggleOffParity_NoTrackChangeFanout(t *testing.T) {
 	// Con servicios apagados, un EventTrackChange no debe abanicar Cmds extra.
 	m := newTestModel(t, Services{})
