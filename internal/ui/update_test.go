@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -447,6 +448,55 @@ func TestLyricsCandidatesEmptyShowsStatus(t *testing.T) {
 	}
 	if !strings.Contains(um.status, "Sin resultados") {
 		t.Fatalf("esperaba 'Sin resultados de letra', got %q", um.status)
+	}
+}
+
+func TestQueueWindow(t *testing.T) {
+	cases := []struct {
+		name             string
+		idx, total, win  int
+		wantStart, wantE int
+	}{
+		{"cabe entero", 0, 5, 10, 0, 5},
+		{"inicio", 0, 100, 10, 0, 10},
+		{"medio desliza", 50, 100, 10, 48, 58},
+		{"final ancla", 99, 100, 10, 90, 100},
+		{"sin actual", -1, 100, 10, 0, 10},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s, e := queueWindow(tc.idx, tc.total, tc.win)
+			if s != tc.wantStart || e != tc.wantE {
+				t.Fatalf("queueWindow(%d,%d,%d) = (%d,%d); want (%d,%d)",
+					tc.idx, tc.total, tc.win, s, e, tc.wantStart, tc.wantE)
+			}
+			if e-s > tc.win {
+				t.Fatalf("ventana excede el máximo: %d filas", e-s)
+			}
+		})
+	}
+}
+
+func TestRenderQueueWindowsLongQueue(t *testing.T) {
+	m := newTestModel(t, Services{})
+	for i := 0; i < 100; i++ {
+		m.queue.Add(search.Result{ID: fmt.Sprintf("v%03d", i), Title: fmt.Sprintf("Track %03d", i)})
+	}
+	out := m.renderQueue()
+
+	if !strings.Contains(out, "Cola (100)") {
+		t.Fatalf("esperaba el total en el encabezado; got:\n%s", out)
+	}
+	// Desde el inicio (idx 0): se muestran 10 y el resto se indica con el marcador.
+	if !strings.Contains(out, "▼ 90 más") {
+		t.Fatalf("esperaba marcador '▼ 90 más'; got:\n%s", out)
+	}
+	if strings.Contains(out, "Track 050") {
+		t.Fatalf("una pista fuera de la ventana no debería renderizarse; got:\n%s", out)
+	}
+	// El panel no debe crecer sin control: muy por debajo de las 100 filas.
+	if n := strings.Count(out, "\n"); n > 20 {
+		t.Fatalf("el panel de cola creció demasiado: %d líneas", n)
 	}
 }
 
