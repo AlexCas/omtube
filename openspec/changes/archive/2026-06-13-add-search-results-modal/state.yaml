@@ -1,0 +1,139 @@
+change: add-search-results-modal
+phase: archive
+status: completed
+history:
+  - phase: explore
+    status: completed
+    ts: 2026-06-13T00:00:00Z
+    note: >
+      Exploration completed. Recommended direction: Approach A (takeover modal
+      via bubbles/list). Scope confined to internal/ui. 4 open questions flagged
+      for human review before proceeding to propose.
+  - phase: propose
+    status: in_progress
+    ts: 2026-06-13T01:51:00Z
+  - phase: propose
+    status: completed
+    ts: 2026-06-13T01:52:00Z
+    note: >
+      Proposal written. Approach A (modeResults takeover modal, dedicated
+      resultsList). Human decisions D1-D4 incorporated as fixed scope.
+      Modified capability: tui-shell. Single-PR, internal/ui-scoped, well
+      under the 400-line review budget.
+  - phase: spec
+    status: in_progress
+    ts: 2026-06-13T02:10:00Z
+  - phase: spec
+    status: completed
+    ts: 2026-06-13T02:12:00Z
+    note: >
+      Delta spec for tui-shell written. ADDED "Search Results Modal" (lifecycle:
+      open on multi-result, Esc/Enter/nav/a/f, D4 hints-only-in-modal). MODIFIED
+      "Results and Queue Panels" (modal results + inline queue, D2 fresh search on
+      empty /) and "Add by URL Input Mode" (D1 single track stays in main view).
+  - phase: spec
+    status: completed
+    ts: 2026-06-13T02:20:00Z
+    note: "Delta spec normalized to English per human review."
+  - phase: design
+    status: in_progress
+    ts: 2026-06-13T02:30:00Z
+  - phase: design
+    status: completed
+    ts: 2026-06-13T02:40:00Z
+    note: >
+      Design written against real internal/ui code. Approach A: dedicated
+      resultsList list.Model + resultItem adapter (cache mark in Title), modeResults
+      takeover branch, guarded searchResultsMsg transition (modeNormal/modeSearch
+      only), updateResultsMode mirroring updatePickerMode (a sets pickerReturn=
+      modeResults, no refreshLibrary), D1 URL resolve stays modeNormal, D2 fresh
+      search needs no new code, D4 modal-only footer. Est ~120-160 lines, under
+      400-line budget. 3 open decisions flagged.
+  - phase: tasks
+    status: in_progress
+    ts: 2026-06-13T02:50:00Z
+  - phase: tasks
+    status: completed
+    ts: 2026-06-13T02:55:00Z
+    note: >
+      Tasks written. 5 phases, 23 tasks ordered so build stays green: model
+      field/iota/resultItem adapter first, then view branch + strip removal,
+      then update routing (guarded searchResultsMsg + updateResultsMode), then
+      tests, then verification. Reflects D1 (URL resolve stays modeNormal -
+      test assertion only), D2 (empty / fresh search - test assertion only),
+      D3 (dedicated resultsList + resultItem), D4 (modal-only hints) and the
+      confirmed decisions (Esc via keys.Cancel, NewDefaultDelegate, Height-4).
+      Single PR, ~120-160 lines, under the 400-line budget.
+  - phase: apply
+    status: in_progress
+    ts: 2026-06-13T03:00:00Z
+  - phase: apply
+    status: completed
+    ts: 2026-06-13T03:30:00Z
+    note: >
+      24/24 tasks completed. model.go: modeResults iota, resultItem adapter,
+      resultsList field + New() build. view.go: modeResults takeover branch with
+      modal-only footer, removed JoinHorizontal+renderResults, queue inline.
+      update.go: resultsList.SetSize in WindowSizeMsg, guarded searchResultsMsg
+      → modeResults (modeNormal/modeSearch only), updateResultsMode (Esc/Enter/a/f),
+      modeResults routing in Update switch. update_test.go: D1 assertion added,
+      6 new modal tests. go build/vet/test all green (15 packages, 28 ui tests).
+  - phase: verify
+    status: in_progress
+    ts: 2026-06-13T03:40:00Z
+  - phase: verify
+    status: completed
+    ts: 2026-06-13T03:50:00Z
+    note: >
+      Verify report written. PASS WITH WARNINGS. build/vet/test green (28 ui
+      tests, 0 fail). 11/13 spec scenarios VERIFIED (7 by passing tests, 4 by
+      code inspection without a behavioral test: nav, favorite-in-modal,
+      URL→playlist follow-up, results-hints-only-in-modal). 1 FAILING:
+      scenario 10 (D2 "empty input starts a new search") is a spec/impl
+      mismatch — code launches NO doSearchCmd on empty submit and the test
+      asserts cmd==nil (opposite of the spec sentence); scenario wording also
+      conflates `/` (opens search) with Enter (submit). The "prior results
+      discarded / modal does not reopen" intent IS satisfied. Async guard
+      VERIFIED. Task 5.4 (manual TUI smoke) remains unchecked — cannot run
+      headless. Author/orchestrator decision needed on D2 rewording before
+      archive.
+  - phase: verify
+    status: completed
+    ts: 2026-06-13T04:00:00Z
+    note: >
+      FINDING-1 (D2) resolved by human decision: corrected the spec, not the
+      code. "Results and Queue Panels" requirement + scenario reworded (renamed
+      "Opening search does not reopen previous results") to match intended
+      behavior; design.md D2 note fixed; test renamed
+      TestSearchEmptyInputRunsNoSearchAndDoesNotReopenModal. Verify now PASS,
+      13/13 scenarios VERIFIED, 0 FAILING.
+  - phase: judge
+    status: in_progress
+    ts: 2026-06-13T04:10:00Z
+  - phase: judge
+    status: completed
+    ts: 2026-06-13T04:30:00Z
+    note: >
+      Judgment Day APPROVED (round 2). Round 1 (blind dual review) found 2
+      confirmed issues, triaged real: CRITICAL — `q` in modeResults quit the
+      app via bubbles/list default Quit binding, bypassing clean player
+      shutdown (orphaned mpv); WARNING — model.go not gofmt-clean. Fixes:
+      rl.DisableQuitKeybindings() in New() (the persistent flag survives the
+      list's own SetEnabled re-derivation), explicit ctrl+c clean-quit case in
+      updateResultsMode (q now inert, ctrl+c hard-quits via player.Close), gofmt
+      -w. Added TestResultsModalQuitKeyDoesNotQuit + TestResultsModalCtrlCQuitsCleanly.
+      Round 2: both judges APPROVED, no new issues, build/vet/test/gofmt green.
+      Mutation gate skipped (disabled). 0/3 retries.
+  - phase: archive
+    status: completed
+    ts: 2026-06-13T05:00:00Z
+    note: >
+      SDD cycle archived. Master spec openspec/specs/tui-shell/spec.md synced:
+      ADDED "Search Results Modal" requirement with 8 scenarios (modal lifecycle,
+      modal-only key hints D4). MODIFIED "Results and Queue Panels" requirement
+      (modal results + inline queue, D2 fresh search on empty /). MODIFIED "Add by
+      URL Input Mode" requirement (single track stays in main view D1). Change folder
+      moved to openspec/changes/archive/2026-06-13-add-search-results-modal. All
+      24/24 tasks complete. Task 5.4 (manual TUI smoke test) remains deferred as
+      inherently manual, non-blocking debt. Judge APPROVED round 2. Build/vet/test
+      green. Cycle complete and ready for next change.
