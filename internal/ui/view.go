@@ -47,20 +47,31 @@ func (m Model) View() string {
 	}
 	b.WriteString("\n\n")
 
-	// Panel de cola: visible siempre en la vista principal a tamaño completo.
-	// El panel de resultados se mueve al modal modeResults y ya no se dibuja aquí.
-	b.WriteString(m.renderQueue())
+	// Fila principal: la cola y, si los servicios de enriquecimiento están activos,
+	// la letra y la portada a su lado en horizontal (Cola | Letra | Portada). El
+	// panel de resultados se mueve al modal modeResults y ya no se dibuja aquí.
+	// Con los toggles apagados renderEnrichment devuelve "" y la fila queda solo
+	// con la cola (paridad Fase 2); no pasamos "" a JoinHorizontal porque añadiría
+	// una columna fantasma que descuadra la cola.
+	queueBlock := m.renderQueue()
+	enrich := m.renderEnrichment()
+	mainRow := queueBlock
+	if enrich != "" {
+		mainRow = lipgloss.JoinHorizontal(lipgloss.Top, queueBlock, enrich)
+	}
+	b.WriteString(mainRow)
 	b.WriteString("\n")
 
-	// Paneles de enriquecimiento (letra/portada). Solo se dibujan cuando su
-	// servicio está activo: con los toggles apagados la vista es la de la Fase 2.
-	if enrich := m.renderEnrichment(); enrich != "" {
-		b.WriteString(enrich)
-		b.WriteString("\n")
+	// Now playing + progreso. Con paneles de enriquecimiento activos se centra
+	// bajo ese bloque (a la derecha de la cola): se sangra el ancho de la cola y
+	// se centra dentro del ancho del bloque letra+portada. Sin enriquecimiento
+	// (toggles apagados) va a la izquierda como antes.
+	nowPlaying := m.renderNowPlaying()
+	if enrich != "" {
+		nowPlaying = strings.Repeat(" ", lipgloss.Width(queueBlock)) +
+			lipgloss.PlaceHorizontal(lipgloss.Width(enrich), lipgloss.Center, nowPlaying)
 	}
-
-	// Now playing + progreso.
-	b.WriteString(m.renderNowPlaying())
+	b.WriteString(nowPlaying)
 	b.WriteString("\n")
 	help := m.renderHelp()
 	b.WriteString(help)

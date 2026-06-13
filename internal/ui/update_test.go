@@ -136,6 +136,57 @@ func TestToggleOffParity_NoEnrichmentPanels(t *testing.T) {
 	}
 }
 
+// TestEnrichmentPanelsBesideQueue verifica que, con los servicios activos, la
+// letra y la portada se dibujan en la MISMA fila que la cola (Cola | Letra |
+// Portada) y no apiladas debajo: la fila de encabezados contiene "Cola" y
+// "Letra" juntos.
+func TestEnrichmentPanelsBesideQueue(t *testing.T) {
+	m := newTestModel(t, Services{Lyrics: fakeLyrics{}, Artwork: fakeArtwork{art: "ART"}})
+	m.queue.Add(search.Result{ID: "abc", Title: "Song"})
+	m.curArtwork = "ART"
+
+	out := m.View()
+	sameRow := false
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "Cola") && strings.Contains(line, "Letra") {
+			sameRow = true
+			break
+		}
+	}
+	if !sameRow {
+		t.Fatalf("esperaba 'Cola' y 'Letra' en la misma fila (layout horizontal); got:\n%s", out)
+	}
+}
+
+// TestNowPlayingCenteredUnderEnrichment verifica que, con los servicios de
+// enriquecimiento activos, la línea de now-playing (la que lleva "vol") queda
+// indentada a la derecha respecto al panel de cola, es decir centrada bajo el
+// bloque letra+portada y no pegada a la izquierda bajo la cola.
+func TestNowPlayingCenteredUnderEnrichment(t *testing.T) {
+	leadSpaces := func(s string) int { return len(s) - len(strings.TrimLeft(s, " ")) }
+
+	m := newTestModel(t, Services{Lyrics: fakeLyrics{}, Artwork: fakeArtwork{art: "ART"}})
+	m.queue.Add(search.Result{ID: "abc", Title: "Flying Monkey"})
+	m.curArtwork = "ART"
+
+	out := m.View()
+	colaIndent, npIndent := -1, -1
+	for _, line := range strings.Split(out, "\n") {
+		if colaIndent < 0 && strings.Contains(line, "Cola") {
+			colaIndent = leadSpaces(line)
+		}
+		if strings.Contains(line, "vol ") { // la línea de now-playing
+			npIndent = leadSpaces(line)
+		}
+	}
+	if colaIndent < 0 || npIndent < 0 {
+		t.Fatalf("no encontré las líneas de cola y/o now-playing; got:\n%s", out)
+	}
+	if npIndent <= colaIndent {
+		t.Fatalf("now-playing debería estar indentado a la derecha de la cola (npIndent=%d, colaIndent=%d)", npIndent, colaIndent)
+	}
+}
+
 func TestToggleOffParity_NoTrackChangeFanout(t *testing.T) {
 	// Con servicios apagados, un EventTrackChange no debe abanicar Cmds extra.
 	m := newTestModel(t, Services{})
