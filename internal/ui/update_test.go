@@ -2,15 +2,20 @@ package ui
 
 import (
 	"context"
+	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"go.uber.org/zap"
 
 	"github.com/alexcasdev/terminaltube/internal/config"
 	"github.com/alexcasdev/terminaltube/internal/lyrics"
 	"github.com/alexcasdev/terminaltube/internal/player"
+	"github.com/alexcasdev/terminaltube/internal/playlist"
 	"github.com/alexcasdev/terminaltube/internal/search"
+	"github.com/alexcasdev/terminaltube/internal/storage"
 )
 
 // fakePlayer es un reproductor de prueba que registra las cargas y expone un
@@ -22,6 +27,7 @@ type fakePlayer struct {
 	paused  bool
 	volume  int
 	pos, du float64
+	stopped int
 }
 
 func newFakePlayer() *fakePlayer {
@@ -35,6 +41,7 @@ func (f *fakePlayer) LoadTrack(src string, t search.Result) error {
 	return nil
 }
 func (f *fakePlayer) TogglePause() error           { f.paused = !f.paused; return nil }
+func (f *fakePlayer) Stop() error                  { f.stopped++; f.paused = false; return nil }
 func (f *fakePlayer) AddVolume(d int) (int, error) { f.volume += d; return f.volume, nil }
 func (f *fakePlayer) Position() (float64, float64) { return f.pos, f.du }
 func (f *fakePlayer) Paused() bool                 { return f.paused }
@@ -54,11 +61,42 @@ func (c *fakeCache) Download(_ context.Context, r search.Result) (string, error)
 	return "/tmp/" + r.ID + ".opus", nil
 }
 
-// fakeLyrics devuelve una letra fija.
-type fakeLyrics struct{ ly lyrics.Lyrics }
+// fakeLyrics devuelve una letra fija y candidatos configurables.
+type fakeLyrics struct {
+	ly    lyrics.Lyrics
+	cands []lyrics.Candidate
+}
 
 func (l fakeLyrics) Fetch(_ context.Context, _ search.Result, _, _ string) (lyrics.Lyrics, error) {
 	return l.ly, nil
+}
+
+func (l fakeLyrics) Search(_ context.Context, _ string) ([]lyrics.Candidate, error) {
+	return l.cands, nil
+}
+
+func (l fakeLyrics) SelectCandidate(_ context.Context, _ search.Result, c lyrics.Candidate) (lyrics.Lyrics, error) {
+	return lyrics.Lyrics{Plain: "letra de " + c.Title}, nil
+}
+
+// fakeSearcher implementa Searcher, Resolver y PlaylistResolver para los flujos
+// de ingesta por URL e importación.
+type fakeSearcher struct {
+	resolveTrack search.Result
+	resolveErr   error
+	plTracks     []search.Result
+	plTitle      string
+	plErr        error
+}
+
+func (f fakeSearcher) Search(_ context.Context, _ string, _ int) ([]search.Result, error) {
+	return nil, nil
+}
+func (f fakeSearcher) Resolve(_ context.Context, _ string) (search.Result, error) {
+	return f.resolveTrack, f.resolveErr
+}
+func (f fakeSearcher) ResolvePlaylist(_ context.Context, _ string) ([]search.Result, string, error) {
+	return f.plTracks, f.plTitle, f.plErr
 }
 
 // fakeArtwork devuelve una portada fija.
@@ -224,6 +262,241 @@ func TestPresenceNilSafeOnQueueFinished(t *testing.T) {
 	m.queue.Add(search.Result{ID: "abc", Title: "Song"})
 	if _, _ = m.handlePlayerEvent(playerEventMsg{event: player.Event{Kind: player.EventEndFile}}); m.status == "" {
 		// (no assertion más allá de no-panic; el estado se fija dentro del handler)
+	}
+}
+
+func TestClearQueueStopsAndResets(t *testing.T) {
+	fp := &fakePresence{}
+	m := newTestModel(t, Services{Presence: fp})
+	player := m.player.(*fakePlayer)
+	m.queue.Add(search.Result{ID: "a", Title: "A"})
+	m.queue.Add(search.Result{ID: "b", Title: "B"})
+	m.started = true
+	m.curTrackID = "a"
+	m.curLyrics = lyrics.Lyrics{Plain: "x"}
+	m.curArtwork = "ART"
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("C")})
+	um := updated.(Model)
+
+	if um.queue.Len() != 0 {
+		t.Fatalf("cola no vaciada: Len=%d", um.queue.Len())
+	}
+	if player.stopped != 1 {
+		t.Fatalf("esperaba 1 Stop al limpiar, got %d", player.stopped)
+	}
+	if um.started || um.curTrackID != "" || !um.curLyrics.Empty() || um.curArtwork != "" {
+		t.Fatalf("estado de 'ahora suena' no reiniciado: %+v", um)
+	}
+	if fp.clear != 1 {
+		t.Fatalf("esperaba limpiar presencia al limpiar la cola, got %d", fp.clear)
+	}
+	if !strings.Contains(um.status, "limpiada") {
+		t.Fatalf("estado inesperado: %q", um.status)
+	}
+}
+
+func TestURLResolvedEnqueuesAndExposesResult(t *testing.T) {
+	m := newTestModel(t, Services{})
+	track := search.Result{ID: "vid", Title: "Canción", Uploader: "Artista"}
+
+	updated, cmd := m.Update(urlResolvedMsg{track: track})
+	um := updated.(Model)
+
+	if um.queue.Len() != 1 {
+		t.Fatalf("la URL resuelta debería encolarse: Len=%d", um.queue.Len())
+	}
+	if len(um.results) != 1 || um.results[0].ID != "vid" {
+		t.Fatalf("la pista resuelta debería exponerse como resultado: %+v", um.results)
+	}
+	if !um.started || cmd == nil {
+		t.Fatal("primera pista debería arrancar la reproducción (cmd de carga)")
+	}
+	if !strings.Contains(um.status, "playlist") {
+		t.Fatalf("el estado debería sugerir añadir a playlist: %q", um.status)
+	}
+}
+
+func TestURLResolveErrorSurfaces(t *testing.T) {
+	m := newTestModel(t, Services{})
+	updated, _ := m.Update(urlResolvedMsg{err: context.DeadlineExceeded})
+	if um := updated.(Model); !strings.Contains(um.status, "No se pudo resolver") {
+		t.Fatalf("esperaba error de resolución en estado: %q", um.status)
+	}
+}
+
+func TestPlaylistResolvedPromptsForName(t *testing.T) {
+	m := newTestModel(t, Services{})
+	tracks := []search.Result{{ID: "a"}, {ID: "b"}}
+
+	updated, _ := m.Update(playlistResolvedMsg{tracks: tracks, title: "Mix"})
+	um := updated.(Model)
+
+	if um.mode != modeImportName {
+		t.Fatalf("esperaba modeImportName, got %v", um.mode)
+	}
+	if len(um.importTracks) != 2 {
+		t.Fatalf("esperaba 2 pistas pendientes de nombre, got %d", len(um.importTracks))
+	}
+}
+
+func TestPlaylistResolvedEmptyDoesNotPrompt(t *testing.T) {
+	m := newTestModel(t, Services{})
+	updated, _ := m.Update(playlistResolvedMsg{tracks: nil})
+	if um := updated.(Model); um.mode == modeImportName {
+		t.Fatal("una playlist sin pistas no debería pedir nombre")
+	}
+}
+
+func TestImportNameCreatesPlaylistWithTracks(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	pl := playlist.New(db.Playlists(), db.Tracks())
+
+	m := New(config.Config{}, nil, newFakePlayer(), nil, pl, nil, Services{}, zap.NewNop())
+	m.mode = modeImportName
+	m.importTracks = []search.Result{{ID: "a", Title: "A"}, {ID: "b", Title: "B"}}
+	m.input.SetValue("Mi Lista")
+
+	updated, _ := m.updateImportNameMode(tea.KeyMsg{Type: tea.KeyEnter})
+	um := updated.(Model)
+	if um.mode != modeNormal {
+		t.Fatalf("tras crear, esperaba modeNormal, got %v", um.mode)
+	}
+
+	pls, err := pl.List()
+	if err != nil || len(pls) != 1 || pls[0].Name != "Mi Lista" {
+		t.Fatalf("playlist no creada correctamente: %+v err=%v", pls, err)
+	}
+	tracks, err := pl.Tracks(pls[0].ID)
+	if err != nil || len(tracks) != 2 {
+		t.Fatalf("esperaba 2 pistas en la playlist importada, got %d err=%v", len(tracks), err)
+	}
+}
+
+func TestImportNameDuplicateStaysInPrompt(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	pl := playlist.New(db.Playlists(), db.Tracks())
+	if _, err := pl.Create("Existente"); err != nil {
+		t.Fatalf("Create previo: %v", err)
+	}
+
+	m := New(config.Config{}, nil, newFakePlayer(), nil, pl, nil, Services{}, zap.NewNop())
+	m.mode = modeImportName
+	m.importTracks = []search.Result{{ID: "a", Title: "A"}}
+	m.input.SetValue("Existente")
+
+	updated, _ := m.updateImportNameMode(tea.KeyMsg{Type: tea.KeyEnter})
+	um := updated.(Model)
+	if um.mode != modeImportName {
+		t.Fatalf("nombre duplicado debería mantener el prompt, got %v", um.mode)
+	}
+	if len(um.importTracks) != 1 {
+		t.Fatal("las pistas pendientes deberían conservarse para reintentar")
+	}
+}
+
+func TestLyricsSearchOpensPickerAndSelects(t *testing.T) {
+	cands := []lyrics.Candidate{
+		{ProviderID: "1", Title: "Numb", Artist: "Linkin Park", Synced: true},
+		{ProviderID: "2", Title: "Numb (live)", Artist: "Linkin Park"},
+	}
+	m := newTestModel(t, Services{Lyrics: fakeLyrics{cands: cands}})
+	m.lyricsTrack = search.Result{ID: "vid", Title: "Numb"}
+	m.curTrackID = "vid"
+
+	updated, _ := m.Update(lyricsCandidatesMsg{cands: cands})
+	um := updated.(Model)
+	if um.mode != modeLyricsPicker {
+		t.Fatalf("esperaba modeLyricsPicker, got %v", um.mode)
+	}
+
+	// Seleccionar el primer candidato fija la letra (vía selectLyricsCmd → lyricsMsg).
+	updated, cmd := um.updateLyricsPickerMode(tea.KeyMsg{Type: tea.KeyEnter})
+	um = updated.(Model)
+	if um.mode != modeNormal {
+		t.Fatalf("tras seleccionar, esperaba modeNormal, got %v", um.mode)
+	}
+	if cmd == nil {
+		t.Fatal("esperaba un cmd que fije la letra seleccionada")
+	}
+	msg := cmd()
+	lm, ok := msg.(lyricsMsg)
+	if !ok || lm.videoID != "vid" {
+		t.Fatalf("esperaba lyricsMsg para la pista actual, got %#v", msg)
+	}
+	// El handler de lyricsMsg debe aplicar la letra a la pista actual.
+	updated, _ = um.Update(lm)
+	if got := updated.(Model).curLyrics.Plain; !strings.Contains(got, "Numb") {
+		t.Fatalf("la letra seleccionada debería aplicarse al panel, got %q", got)
+	}
+}
+
+func TestLyricsCandidatesEmptyShowsStatus(t *testing.T) {
+	m := newTestModel(t, Services{Lyrics: fakeLyrics{}})
+	updated, _ := m.Update(lyricsCandidatesMsg{cands: nil})
+	um := updated.(Model)
+	if um.mode == modeLyricsPicker {
+		t.Fatal("sin candidatos no debería abrir el picker")
+	}
+	if !strings.Contains(um.status, "Sin resultados") {
+		t.Fatalf("esperaba 'Sin resultados de letra', got %q", um.status)
+	}
+}
+
+func TestQueueWindow(t *testing.T) {
+	cases := []struct {
+		name             string
+		idx, total, win  int
+		wantStart, wantE int
+	}{
+		{"cabe entero", 0, 5, 10, 0, 5},
+		{"inicio", 0, 100, 10, 0, 10},
+		{"medio desliza", 50, 100, 10, 48, 58},
+		{"final ancla", 99, 100, 10, 90, 100},
+		{"sin actual", -1, 100, 10, 0, 10},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s, e := queueWindow(tc.idx, tc.total, tc.win)
+			if s != tc.wantStart || e != tc.wantE {
+				t.Fatalf("queueWindow(%d,%d,%d) = (%d,%d); want (%d,%d)",
+					tc.idx, tc.total, tc.win, s, e, tc.wantStart, tc.wantE)
+			}
+			if e-s > tc.win {
+				t.Fatalf("ventana excede el máximo: %d filas", e-s)
+			}
+		})
+	}
+}
+
+func TestRenderQueueWindowsLongQueue(t *testing.T) {
+	m := newTestModel(t, Services{})
+	for i := 0; i < 100; i++ {
+		m.queue.Add(search.Result{ID: fmt.Sprintf("v%03d", i), Title: fmt.Sprintf("Track %03d", i)})
+	}
+	out := m.renderQueue()
+
+	if !strings.Contains(out, "Cola (100)") {
+		t.Fatalf("esperaba el total en el encabezado; got:\n%s", out)
+	}
+	// Desde el inicio (idx 0): se muestran 10 y el resto se indica con el marcador.
+	if !strings.Contains(out, "▼ 90 más") {
+		t.Fatalf("esperaba marcador '▼ 90 más'; got:\n%s", out)
+	}
+	if strings.Contains(out, "Track 050") {
+		t.Fatalf("una pista fuera de la ventana no debería renderizarse; got:\n%s", out)
+	}
+	// El panel no debe crecer sin control: muy por debajo de las 100 filas.
+	if n := strings.Count(out, "\n"); n > 20 {
+		t.Fatalf("el panel de cola creció demasiado: %d líneas", n)
 	}
 }
 

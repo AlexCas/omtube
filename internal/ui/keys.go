@@ -21,6 +21,12 @@ type keyMap struct {
 	Favorite       key.Binding
 	AddToPlaylist  key.Binding
 	CreatePlaylist key.Binding
+
+	// Ingesta por URL, importación, búsqueda de letra y limpiar cola.
+	AddFromURL     key.Binding
+	ImportPlaylist key.Binding
+	LyricsSearch   key.Binding
+	ClearQueue     key.Binding
 }
 
 func defaultKeys() keyMap {
@@ -41,5 +47,10 @@ func defaultKeys() keyMap {
 		Favorite:       key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "favorito")),
 		AddToPlaylist:  key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "añadir a playlist")),
 		CreatePlaylist: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "crear playlist")),
+
+		AddFromURL:     key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "añadir por URL")),
+		ImportPlaylist: key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "importar playlist")),
+		LyricsSearch:   key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "buscar letra")),
+		ClearQueue:     key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "limpiar cola")),
 	}
 }

@@ -17,7 +17,7 @@ func (m Model) View() string {
 		return "¡Hasta luego!\n"
 	}
 
-	if m.mode == modePicker {
+	if m.mode == modePicker || m.mode == modeLyricsPicker {
 		return m.picker.View()
 	}
 
@@ -29,8 +29,8 @@ func (m Model) View() string {
 	b.WriteString(m.styles.title.Render("🎵 Omusic"))
 	b.WriteString("\n\n")
 
-	// Barra de búsqueda o estado.
-	if m.mode == modeSearch {
+	// Barra de búsqueda/prompt o estado.
+	if m.isInputMode() {
 		b.WriteString(m.input.View())
 	} else {
 		b.WriteString(m.styles.dim.Render(m.status))
@@ -134,15 +134,34 @@ func (m Model) renderResults() string {
 	return m.styles.panel.Width(48).Render(b.String())
 }
 
+// maxQueueRows es el número máximo de pistas que el panel de cola dibuja a la vez.
+// Una cola más larga (p.ej. una playlist importada) se muestra como una ventana
+// deslizante alrededor de la pista actual, evitando que el panel crezca sin
+// límite y rompa el layout. La cola interna se mantiene completa.
+const maxQueueRows = 10
+
 func (m Model) renderQueue() string {
 	var b strings.Builder
-	b.WriteString(m.styles.heading.Render("Cola"))
-	b.WriteString("\n")
 	items := m.queue.Items()
-	if len(items) == 0 {
-		b.WriteString(m.styles.dim.Render("(vacía)"))
+	total := len(items)
+	heading := "Cola"
+	if total > 0 {
+		heading = fmt.Sprintf("Cola (%d)", total)
 	}
-	for i, r := range items {
+	b.WriteString(m.styles.heading.Render(heading))
+	b.WriteString("\n")
+	if total == 0 {
+		b.WriteString(m.styles.dim.Render("(vacía)"))
+		return m.styles.panel.Width(36).Render(b.String())
+	}
+
+	start, end := queueWindow(m.queue.Index(), total, maxQueueRows)
+	if start > 0 {
+		b.WriteString(m.styles.dim.Render(fmt.Sprintf("  ▲ %d más", start)))
+		b.WriteString("\n")
+	}
+	for i := start; i < end; i++ {
+		r := items[i]
 		prefix := "  "
 		line := r.Title
 		if i == m.queue.Index() {
@@ -152,7 +171,34 @@ func (m Model) renderQueue() string {
 		b.WriteString(m.cacheMark(r.ID) + prefix + truncate(line, 28))
 		b.WriteString("\n")
 	}
+	if end < total {
+		b.WriteString(m.styles.dim.Render(fmt.Sprintf("  ▼ %d más", total-end)))
+	}
 	return m.styles.panel.Width(36).Render(b.String())
+}
+
+// queueWindow calcula el rango [start, end) de pistas a mostrar para una cola de
+// total elementos con la actual en idx, limitado a window filas. Mantiene la
+// actual visible con un pequeño contexto previo, de modo que al avanzar la
+// reproducción la ventana se desliza y las próximas pistas quedan a la vista.
+func queueWindow(idx, total, window int) (start, end int) {
+	if total <= window {
+		return 0, total
+	}
+	if idx < 0 {
+		idx = 0
+	}
+	const lead = 2 // pistas ya pasadas que se conservan como contexto encima
+	start = idx - lead
+	if start < 0 {
+		start = 0
+	}
+	end = start + window
+	if end > total {
+		end = total
+		start = end - window
+	}
+	return start, end
 }
 
 func (m Model) renderNowPlaying() string {
@@ -174,9 +220,19 @@ func (m Model) renderNowPlaying() string {
 	)
 }
 
+// isInputMode indica si el modo actual usa el input de texto compartido (búsqueda
+// o cualquiera de los prompts de URL/importación/letra), para dibujarlo en la vista.
+func (m Model) isInputMode() bool {
+	switch m.mode {
+	case modeSearch, modeURLInput, modeImportURL, modeImportName, modeLyricsSearch:
+		return true
+	}
+	return false
+}
+
 func (m Model) renderHelp() string {
 	return m.styles.help.Render(
-		"/ buscar · enter encolar · espacio play/pausa · n/p sig/ant · +/- volumen · f favorito · a +playlist · L biblioteca · q salir")
+		"/ buscar · u URL · i importar · enter encolar · espacio play/pausa · n/p sig/ant · y letra · C limpiar · f favorito · a +playlist · L biblioteca · q salir")
 }
 
 // renderLibrary dibuja el modo biblioteca con sus tres secciones (playlists,

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -9,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/alexcasdev/terminaltube/internal/lyrics"
+	"github.com/alexcasdev/terminaltube/internal/metadata"
 	"github.com/alexcasdev/terminaltube/internal/player"
 	"github.com/alexcasdev/terminaltube/internal/search"
 )
@@ -31,6 +33,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updatePickerMode(msg)
 		case modeCreatePlaylist:
 			return m.updateCreatePlaylistMode(msg)
+		case modeURLInput:
+			return m.updateURLInputMode(msg)
+		case modeImportURL:
+			return m.updateImportURLMode(msg)
+		case modeImportName:
+			return m.updateImportNameMode(msg)
+		case modeLyricsSearch:
+			return m.updateLyricsSearchMode(msg)
+		case modeLyricsPicker:
+			return m.updateLyricsPickerMode(msg)
 		default:
 			return m.updateNormalMode(msg)
 		}
@@ -48,6 +60,71 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.status = fmt.Sprintf("%d resultados. Enter para encolar.", len(m.results))
 		}
+		return m, nil
+
+	case urlResolvedMsg:
+		m.searching = false
+		if msg.err != nil {
+			m.status = m.styles.errorMsg.Render("No se pudo resolver la URL: " + msg.err.Error())
+			return m, nil
+		}
+		// La pista resuelta se encola y se muestra como único resultado, de modo
+		// que la tecla "a" pueda añadirla a una playlist existente reusando el picker.
+		m.queue.Add(msg.track)
+		m.results = []search.Result{msg.track}
+		m.cursor = 0
+		if !m.started {
+			m.started = true
+			m.status = "Reproduciendo desde URL: " + msg.track.Title + " · a → añadir a playlist"
+			return m, loadTrackCmd(m.player, m.cache, msg.track)
+		}
+		m.status = "Añadido a la cola: " + msg.track.Title + " · a → añadir a playlist"
+		return m, nil
+
+	case playlistResolvedMsg:
+		m.searching = false
+		if msg.err != nil {
+			m.status = m.styles.errorMsg.Render("No se pudo importar la playlist: " + msg.err.Error())
+			return m, nil
+		}
+		if len(msg.tracks) == 0 {
+			m.status = "La playlist no devolvió pistas."
+			return m, nil
+		}
+		// Pistas resueltas: pedir al usuario el nombre de la playlist local.
+		m.importTracks = msg.tracks
+		m.importTitle = msg.title
+		m.mode = modeImportName
+		m.input.SetValue("")
+		m.input.Placeholder = "Nombre de la playlist…"
+		m.input.Prompt = "📝 "
+		m.input.Focus()
+		info := fmt.Sprintf("%d pistas", len(msg.tracks))
+		if msg.title != "" {
+			info += " · " + msg.title
+		}
+		m.status = "Importar (" + info + "): teclea un nombre · enter crear · esc cancelar."
+		return m, textinput.Blink
+
+	case lyricsCandidatesMsg:
+		m.searching = false
+		if msg.err != nil {
+			m.status = m.styles.errorMsg.Render("Error buscando letra: " + msg.err.Error())
+			return m, nil
+		}
+		if len(msg.cands) == 0 {
+			m.status = "Sin resultados de letra."
+			return m, nil
+		}
+		m.lyricCands = msg.cands
+		items := make([]list.Item, 0, len(msg.cands))
+		for _, c := range msg.cands {
+			items = append(items, candidateItem{c: c})
+		}
+		m.picker.SetItems(items)
+		m.picker.Title = "Elige la letra"
+		m.picker.Select(0)
+		m.mode = modeLyricsPicker
 		return m, nil
 
 	case loadedMsg:
@@ -236,7 +313,83 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.openPlaylistPicker(track)
 		}
 		return m, nil
+
+	case key.Matches(msg, m.keys.AddFromURL):
+		if m.resolver == nil {
+			m.status = "Resolución por URL no disponible."
+			return m, nil
+		}
+		m.mode = modeURLInput
+		m.input.SetValue("")
+		m.input.Placeholder = "URL de vídeo de YouTube…"
+		m.input.Prompt = "🔗 "
+		m.input.Focus()
+		m.status = "Pega una URL de vídeo · enter añadir · esc cancelar."
+		return m, textinput.Blink
+
+	case key.Matches(msg, m.keys.ImportPlaylist):
+		if m.plResolver == nil {
+			m.status = "Importar playlist no disponible."
+			return m, nil
+		}
+		m.mode = modeImportURL
+		m.input.SetValue("")
+		m.input.Placeholder = "URL de playlist de YouTube…"
+		m.input.Prompt = "🔗 "
+		m.input.Focus()
+		m.status = "Pega una URL de playlist · enter importar · esc cancelar."
+		return m, textinput.Blink
+
+	case key.Matches(msg, m.keys.LyricsSearch):
+		cur, ok := m.queue.Current()
+		if !ok {
+			m.status = "No hay pista en reproducción para buscar su letra."
+			return m, nil
+		}
+		if m.lyrics == nil {
+			m.status = "Letras desactivadas."
+			return m, nil
+		}
+		m.lyricsTrack = cur
+		m.mode = modeLyricsSearch
+		// Prellenar con el título/artista normalizados de la pista actual.
+		artist, title := metadata.Normalize(cur)
+		q := strings.TrimSpace(artist + " " + title)
+		m.input.SetValue(q)
+		m.input.CursorEnd()
+		m.input.Placeholder = "Buscar letra…"
+		m.input.Prompt = "🔍 "
+		m.input.Focus()
+		m.status = "Ajusta la consulta de letra · enter buscar · esc cancelar."
+		return m, textinput.Blink
+
+	case key.Matches(msg, m.keys.ClearQueue):
+		return m.clearQueue()
 	}
+	return m, nil
+}
+
+// clearQueue vacía la cola completa, detiene la reproducción y reinicia el estado
+// de "ahora suena" (letra/portada/presencia).
+func (m Model) clearQueue() (tea.Model, tea.Cmd) {
+	if m.queue.Len() == 0 {
+		m.status = "La cola ya está vacía."
+		return m, nil
+	}
+	m.queue.Clear()
+	if err := m.player.Stop(); err != nil {
+		m.warn("no se pudo detener la reproducción: " + err.Error())
+	}
+	m.started = false
+	m.curTrackID = ""
+	m.curLyrics = lyrics.Lyrics{}
+	m.curArtwork = ""
+	m.lyricLine = -1
+	m.pos, m.dur = 0, 0
+	if m.presence != nil {
+		m.presence.Clear()
+	}
+	m.status = "Cola limpiada."
 	return m, nil
 }
 
@@ -388,6 +541,164 @@ func (m *Model) closeCreatePrompt() {
 	m.input.Placeholder = "Buscar canción…"
 	m.input.Prompt = "🔎 "
 	m.mode = modeLibrary
+}
+
+// endInput cierra un prompt de texto y restaura los valores de búsqueda en el
+// input compartido, devolviendo la UI al modo normal.
+func (m *Model) endInput() {
+	m.input.Blur()
+	m.input.SetValue("")
+	m.input.Placeholder = "Buscar canción…"
+	m.input.Prompt = "🔎 "
+	m.mode = modeNormal
+}
+
+// restorePickerTitle restaura el título por defecto del picker (compartido entre
+// la selección de playlist y la de candidatos de letra).
+func (m *Model) restorePickerTitle() { m.picker.Title = "Añadir a playlist" }
+
+// updateURLInputMode gestiona el prompt de URL de vídeo: al enviar, resuelve la
+// URL en segundo plano.
+func (m Model) updateURLInputMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, m.keys.Cancel):
+		m.endInput()
+		m.status = "Cancelado."
+		return m, nil
+	case key.Matches(msg, m.keys.Enqueue):
+		raw := strings.TrimSpace(m.input.Value())
+		m.endInput()
+		if raw == "" {
+			return m, nil
+		}
+		if m.resolver == nil {
+			m.status = "Resolución por URL no disponible."
+			return m, nil
+		}
+		m.searching = true
+		m.status = "Resolviendo URL…"
+		return m, resolveURLCmd(m.resolver, raw)
+	}
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
+// updateImportURLMode gestiona el prompt de URL de playlist: al enviar, resuelve
+// la playlist en segundo plano (luego se pedirá el nombre).
+func (m Model) updateImportURLMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, m.keys.Cancel):
+		m.endInput()
+		m.status = "Cancelado."
+		return m, nil
+	case key.Matches(msg, m.keys.Enqueue):
+		raw := strings.TrimSpace(m.input.Value())
+		m.endInput()
+		if raw == "" {
+			return m, nil
+		}
+		if m.plResolver == nil {
+			m.status = "Importar playlist no disponible."
+			return m, nil
+		}
+		m.searching = true
+		m.status = "Resolviendo playlist…"
+		return m, resolvePlaylistCmd(m.plResolver, raw)
+	}
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
+// updateImportNameMode gestiona el prompt de nombre tras resolver una playlist:
+// crea la playlist local y le añade las pistas resueltas. Ante un nombre inválido
+// o duplicado se mantiene en el prompt para que el usuario corrija.
+func (m Model) updateImportNameMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, m.keys.Cancel):
+		m.importTracks = nil
+		m.importTitle = ""
+		m.endInput()
+		m.status = "Importación cancelada."
+		return m, nil
+	case key.Matches(msg, m.keys.Enqueue):
+		name := strings.TrimSpace(m.input.Value())
+		id, err := m.playlists.Create(name)
+		if err != nil {
+			// Nombre vacío o duplicado: permanecer en el prompt para corregir.
+			m.status = m.styles.errorMsg.Render("No se pudo crear: " + err.Error())
+			return m, nil
+		}
+		tracks := m.importTracks
+		m.importTracks = nil
+		m.importTitle = ""
+		m.endInput()
+		added := 0
+		for _, t := range tracks {
+			if err := m.playlists.Add(id, t); err != nil {
+				m.warn("no se pudo añadir pista a la playlist importada: " + err.Error())
+				continue
+			}
+			added++
+		}
+		m.status = fmt.Sprintf("Playlist importada: %s (%d pistas)", name, added)
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
+// updateLyricsSearchMode gestiona el prompt de consulta de la búsqueda manual de
+// letra.
+func (m Model) updateLyricsSearchMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, m.keys.Cancel):
+		m.endInput()
+		m.status = "Búsqueda de letra cancelada."
+		return m, nil
+	case key.Matches(msg, m.keys.Enqueue):
+		q := strings.TrimSpace(m.input.Value())
+		m.endInput()
+		if q == "" {
+			return m, nil
+		}
+		if m.lyrics == nil {
+			m.status = "Letras desactivadas."
+			return m, nil
+		}
+		m.searching = true
+		m.status = "Buscando letra…"
+		return m, searchLyricsCmd(m.lyrics, q)
+	}
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
+// updateLyricsPickerMode gestiona la selección de un candidato de letra. Al
+// elegir, fija la letra y persiste la referencia para la pista.
+func (m Model) updateLyricsPickerMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, m.keys.Cancel):
+		m.restorePickerTitle()
+		m.mode = modeNormal
+		m.status = "Búsqueda de letra cancelada."
+		return m, nil
+	case key.Matches(msg, m.keys.Enqueue):
+		it, ok := m.picker.SelectedItem().(candidateItem)
+		m.restorePickerTitle()
+		m.mode = modeNormal
+		if !ok {
+			return m, nil
+		}
+		m.status = "Letra fijada para: " + m.lyricsTrack.Title
+		return m, selectLyricsCmd(m.lyrics, m.lyricsTrack, it.c)
+	}
+	var cmd tea.Cmd
+	m.picker, cmd = m.picker.Update(msg)
+	return m, cmd
 }
 
 // libSelectedTrack devuelve la pista bajo el cursor en secciones de pistas

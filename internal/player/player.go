@@ -45,6 +45,9 @@ type Player interface {
 	LoadTrack(src string, track search.Result) error
 	// TogglePause alterna entre pausa y reproducción.
 	TogglePause() error
+	// Stop detiene la reproducción actual dejando el proceso vivo y ocioso (a
+	// diferencia de Close, que termina mpv). Usado al limpiar la cola.
+	Stop() error
 	// AddVolume ajusta el volumen en delta (clamp 0–130) y devuelve el nuevo valor.
 	AddVolume(delta int) (int, error)
 	// Position devuelve la posición y duración actuales en segundos.

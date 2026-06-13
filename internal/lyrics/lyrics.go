@@ -3,6 +3,7 @@ package lyrics
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -17,6 +18,9 @@ import (
 // defaultBaseURL es el endpoint de lrclib, una API comunitaria sin auth que
 // sirve letras sincronizadas (.lrc) y planas.
 const defaultBaseURL = "https://lrclib.net"
+
+// userAgent identifica al cliente ante lrclib (cortesía pedida por la API).
+const userAgent = "terminaltube (https://github.com/alexcasdev/terminaltube)"
 
 // httpDoer abstrae *http.Client para poder inyectar un cliente de prueba.
 type httpDoer interface {
@@ -68,6 +72,16 @@ func (s *Service) Fetch(ctx context.Context, track search.Result, queryTitle, qu
 		return l, nil
 	}
 
+	// Reuso de referencia guardada: si una búsqueda manual previa guardó un
+	// provider_id o una query para esta pista, resolver con ella antes de la
+	// consulta automática. Cubre el caso en que la fila tiene referencia pero el
+	// cuerpo cacheado se perdió o quedó vacío.
+	if body, synced, ok := s.fetchSaved(ctx, track.ID); ok {
+		l := buildLyrics(body, synced)
+		s.store(track, body, l.Synced)
+		return l, nil
+	}
+
 	body, synced, ok := s.fetchRemote(ctx, queryTitle, queryArtist, track.Duration)
 	if !ok && s.searchFallback {
 		// Reintento difuso: /api/get exige coincidencia exacta de
@@ -79,6 +93,18 @@ func (s *Service) Fetch(ctx context.Context, track search.Result, queryTitle, qu
 		return Lyrics{}, nil
 	}
 
+	l := buildLyrics(body, synced)
+
+	// Se persiste la identidad CRUDA de track (no las cadenas de consulta
+	// normalizadas) para que UpsertWithTrack sea idempotente respecto a lo que
+	// history.Add ya escribió y no degrade la fila compartida.
+	s.store(track, body, l.Synced)
+	return l, nil
+}
+
+// buildLyrics construye Lyrics desde un cuerpo crudo: parsea .lrc si es
+// sincronizado y cae a texto plano si el resultado queda vacío.
+func buildLyrics(body string, synced bool) Lyrics {
 	var l Lyrics
 	if synced {
 		l = parseLRC(body)
@@ -86,12 +112,7 @@ func (s *Service) Fetch(ctx context.Context, track search.Result, queryTitle, qu
 	if l.Empty() {
 		l = plainText(body)
 	}
-
-	// Se persiste la identidad CRUDA de track (no las cadenas de consulta
-	// normalizadas) para que UpsertWithTrack sea idempotente respecto a lo que
-	// history.Add ya escribió y no degrade la fila compartida.
-	s.store(track, body, l.Synced)
-	return l, nil
+	return l
 }
 
 // fromCache intenta resolver la letra desde la caché en BD. Devuelve ok=false
@@ -182,6 +203,7 @@ func (s *Service) fetchRemote(ctx context.Context, title, artist string, dur int
 
 // lrclibSearchResult es un candidato del endpoint difuso /api/search de lrclib.
 type lrclibSearchResult struct {
+	ID           int64   `json:"id"`
 	TrackName    string  `json:"trackName"`
 	ArtistName   string  `json:"artistName"`
 	Duration     float64 `json:"duration"`
@@ -292,4 +314,165 @@ func pickBestCandidate(results []lrclibSearchResult, title, artist string, dur i
 		return nil
 	}
 	return &results[bestIdx]
+}
+
+// Candidate es un candidato de letra de la búsqueda manual del usuario. Expone los
+// campos visibles (título/artista/duración) y la referencia del proveedor; el
+// cuerpo de la letra viaja en un campo privado para que SelectCandidate lo persista
+// sin una segunda petición HTTP.
+type Candidate struct {
+	ProviderID string // id de pista en lrclib
+	Title      string
+	Artist     string
+	Duration   int
+	Synced     bool   // true si el candidato trae letra sincronizada
+	Query      string // consulta que produjo este candidato
+	body       string // cuerpo de letra (sincronizado o plano)
+}
+
+// Search realiza una búsqueda manual de letra contra lrclib /api/search con la
+// consulta libre del usuario y devuelve los candidatos con letra (cada uno con su
+// referencia de proveedor). A diferencia de Fetch, propaga el error de red/HTTP
+// para que la UI pueda distinguir "sin resultados" de un fallo.
+func (s *Service) Search(ctx context.Context, query string) ([]Candidate, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, nil
+	}
+
+	q := url.Values{}
+	q.Set("q", query)
+	endpoint := s.baseURL + "/api/search?" + q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", userAgent)
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("lrclib: estado %d", resp.StatusCode)
+	}
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, err
+	}
+
+	var results []lrclibSearchResult
+	if err := json.Unmarshal(data, &results); err != nil {
+		return nil, err
+	}
+
+	cands := make([]Candidate, 0, len(results))
+	for i := range results {
+		r := &results[i]
+		body, synced := r.SyncedLyrics, true
+		if body == "" {
+			body, synced = r.PlainLyrics, false
+		}
+		if body == "" {
+			continue // sin letra: no es seleccionable
+		}
+		cands = append(cands, Candidate{
+			ProviderID: strconv.FormatInt(r.ID, 10),
+			Title:      r.TrackName,
+			Artist:     r.ArtistName,
+			Duration:   int(r.Duration),
+			Synced:     synced,
+			Query:      query,
+			body:       body,
+		})
+	}
+	return cands, nil
+}
+
+// SelectCandidate fija la letra elegida por el usuario para track y persiste la
+// referencia (query + provider_id) vinculada al video_id, de modo que una
+// re-reproducción posterior la reuse. No hace red: el cuerpo ya viaja en el
+// candidato devuelto por Search.
+func (s *Service) SelectCandidate(_ context.Context, track search.Result, c Candidate) (Lyrics, error) {
+	l := buildLyrics(c.body, c.Synced)
+	if s.repo != nil && track.ID != "" && c.body != "" {
+		_ = s.repo.UpsertWithTrack(track, storage.LyricsEntry{
+			VideoID:    track.ID,
+			Synced:     l.Synced,
+			Body:       c.body,
+			Query:      c.Query,
+			ProviderID: c.ProviderID,
+		})
+	}
+	return l, nil
+}
+
+// fetchSaved intenta resolver la letra usando la referencia guardada para
+// videoID: primero por provider_id (/api/get/{id}) y, si no, re-ejecutando la
+// query guardada. Devuelve ok=false si no hay repo, fila ni referencia útil.
+func (s *Service) fetchSaved(ctx context.Context, videoID string) (body string, synced, ok bool) {
+	if s.repo == nil || videoID == "" {
+		return "", false, false
+	}
+	entry, found, err := s.repo.Get(videoID)
+	if err != nil || !found {
+		return "", false, false
+	}
+	if entry.ProviderID != "" {
+		if b, sy, ok := s.fetchByID(ctx, entry.ProviderID); ok {
+			return b, sy, true
+		}
+	}
+	if entry.Query != "" {
+		if cands, err := s.Search(ctx, entry.Query); err == nil && len(cands) > 0 {
+			return cands[0].body, cands[0].Synced, true
+		}
+	}
+	return "", false, false
+}
+
+// fetchByID resuelve la letra por id de pista de lrclib (/api/get/{id}). Devuelve
+// ok=false ante cualquier error de red, código != 200 o ausencia de letra.
+func (s *Service) fetchByID(ctx context.Context, providerID string) (body string, synced, ok bool) {
+	if providerID == "" {
+		return "", false, false
+	}
+	endpoint := s.baseURL + "/api/get/" + url.PathEscape(providerID)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", false, false
+	}
+	req.Header.Set("User-Agent", userAgent)
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return "", false, false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", false, false
+	}
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", false, false
+	}
+
+	var lr lrclibResponse
+	if err := json.Unmarshal(data, &lr); err != nil {
+		return "", false, false
+	}
+	if lr.SyncedLyrics != "" {
+		return lr.SyncedLyrics, true, true
+	}
+	if lr.PlainLyrics != "" {
+		return lr.PlainLyrics, false, true
+	}
+	return "", false, false
 }

@@ -32,8 +32,12 @@ type cacheService interface {
 }
 
 // lyricsService resuelve la letra de una pista. Un valor nil ⇒ panel apagado.
+// Search/SelectCandidate dan la búsqueda manual: el usuario teclea una consulta,
+// elige un candidato y la referencia queda guardada para reusarse al reproducir.
 type lyricsService interface {
 	Fetch(ctx context.Context, track search.Result, queryTitle, queryArtist string) (lyrics.Lyrics, error)
+	Search(ctx context.Context, query string) ([]lyrics.Candidate, error)
+	SelectCandidate(ctx context.Context, track search.Result, c lyrics.Candidate) (lyrics.Lyrics, error)
 }
 
 // artworkService renderiza la portada de una pista. Un valor nil ⇒ panel apagado.
@@ -56,6 +60,11 @@ const (
 	modeLibrary
 	modePicker         // selección de playlist (add-to-playlist) sobre modeLibrary
 	modeCreatePlaylist // prompt de nombre para crear playlist sobre modeLibrary
+	modeURLInput       // prompt para pegar una URL de vídeo de YouTube
+	modeImportURL      // prompt para pegar una URL de playlist de YouTube
+	modeImportName     // prompt de nombre tras resolver una playlist importada
+	modeLyricsSearch   // prompt de consulta para la búsqueda manual de letra
+	modeLyricsPicker   // selección de candidato de letra
 )
 
 // librarySection identifica la sección activa del modo biblioteca.
@@ -70,14 +79,16 @@ const (
 
 // Model es el estado de la TUI.
 type Model struct {
-	cfg       config.Config
-	searcher  search.Searcher
-	player    player.Player
-	queue     *queue.Queue
-	history   *history.History
-	playlists *playlist.Service
-	favorites *favorites.Service
-	logger    *zap.Logger
+	cfg        config.Config
+	searcher   search.Searcher
+	resolver   search.Resolver         // resuelve URLs de vídeo; nil ⇒ no soportado
+	plResolver search.PlaylistResolver // resuelve URLs de playlist; nil ⇒ no soportado
+	player     player.Player
+	queue      *queue.Queue
+	history    *history.History
+	playlists  *playlist.Service
+	favorites  *favorites.Service
+	logger     *zap.Logger
 
 	// Servicios de enriquecimiento (Fase 3). nil ⇒ feature apagada.
 	cache    cacheService
@@ -108,6 +119,12 @@ type Model struct {
 	// Estado del picker de add-to-playlist.
 	pickerTrack  search.Result
 	pickerReturn mode // modo al que volver tras cerrar el picker
+
+	// Estado de los flujos por URL / importación / búsqueda manual de letra.
+	importTracks []search.Result    // pistas resueltas de una playlist, a la espera de nombre
+	importTitle  string             // título de la playlist de YouTube importada (informativo)
+	lyricsTrack  search.Result      // pista objetivo de la búsqueda manual de letra
+	lyricCands   []lyrics.Candidate // candidatos de la última búsqueda manual
 
 	// Estado de los paneles de enriquecimiento (Fase 3). Indexados por video id
 	// para descartar respuestas que llegan tras un cambio de pista.
@@ -150,26 +167,33 @@ func New(cfg config.Config, s search.Searcher, p player.Player, h *history.Histo
 	picker.SetShowStatusBar(false)
 	picker.SetFilteringEnabled(false)
 
+	// El buscador concreto (yt-dlp) también resuelve URLs de vídeo y de playlist;
+	// se exponen tras sus interfaces para que la UI pueda degradar si no están.
+	resolver, _ := s.(search.Resolver)
+	plResolver, _ := s.(search.PlaylistResolver)
+
 	return Model{
-		cfg:       cfg,
-		searcher:  s,
-		player:    p,
-		queue:     queue.New(),
-		history:   h,
-		playlists: pl,
-		favorites: fav,
-		cache:     svc.Cache,
-		lyrics:    svc.Lyrics,
-		artwork:   svc.Artwork,
-		presence:  svc.Presence,
-		logger:    logger,
-		keys:      defaultKeys(),
-		styles:    defaultStyles(),
-		input:     in,
-		picker:    picker,
-		lyricLine: -1,
-		cachedIDs: make(map[string]bool),
-		status:    "Pulsa / para buscar · L biblioteca.",
+		cfg:        cfg,
+		searcher:   s,
+		resolver:   resolver,
+		plResolver: plResolver,
+		player:     p,
+		queue:      queue.New(),
+		history:    h,
+		playlists:  pl,
+		favorites:  fav,
+		cache:      svc.Cache,
+		lyrics:     svc.Lyrics,
+		artwork:    svc.Artwork,
+		presence:   svc.Presence,
+		logger:     logger,
+		keys:       defaultKeys(),
+		styles:     defaultStyles(),
+		input:      in,
+		picker:     picker,
+		lyricLine:  -1,
+		cachedIDs:  make(map[string]bool),
+		status:     "Pulsa / para buscar · L biblioteca.",
 	}
 }
 
@@ -179,6 +203,19 @@ type playlistItem struct{ pl storage.Playlist }
 func (i playlistItem) Title() string       { return i.pl.Name }
 func (i playlistItem) Description() string { return "" }
 func (i playlistItem) FilterValue() string { return i.pl.Name }
+
+// candidateItem adapta lyrics.Candidate al list.Item del picker de candidatos de
+// letra en la búsqueda manual.
+type candidateItem struct{ c lyrics.Candidate }
+
+func (i candidateItem) Title() string {
+	if i.c.Synced {
+		return "🎵 " + i.c.Title
+	}
+	return i.c.Title
+}
+func (i candidateItem) Description() string { return i.c.Artist }
+func (i candidateItem) FilterValue() string { return i.c.Title }
 
 // Init arranca el bucle de eventos del reproductor y el tick de progreso.
 func (m Model) Init() tea.Cmd {

@@ -19,3 +19,15 @@ type Searcher interface {
 	// Search devuelve hasta n resultados para la consulta q.
 	Search(ctx context.Context, q string, n int) ([]Result, error)
 }
+
+// Resolver resuelve una URL de vídeo de YouTube a un único resultado.
+type Resolver interface {
+	// Resolve devuelve el metadato del vídeo indicado por rawURL.
+	Resolve(ctx context.Context, rawURL string) (Result, error)
+}
+
+// PlaylistResolver resuelve una URL de playlist de YouTube a sus pistas y título.
+type PlaylistResolver interface {
+	// ResolvePlaylist devuelve las pistas en orden y el título de la playlist.
+	ResolvePlaylist(ctx context.Context, rawURL string) ([]Result, string, error)
+}

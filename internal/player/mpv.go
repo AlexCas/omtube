@@ -7,12 +7,10 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"runtime"
 	"sync"
 	"time"
 
 	"github.com/alexcasdev/terminaltube/internal/search"
-	"gopkg.in/natefinch/npipe.v2"
 )
 
 // MPV controla un proceso mpv en modo idle a través de su socket IPC JSON.
@@ -89,13 +87,7 @@ func dialWithRetry(socket string, timeout time.Duration) (net.Conn, error) {
 	deadline := time.Now().Add(timeout)
 	var lastErr error
 	for time.Now().Before(deadline) {
-		var conn net.Conn
-		var err error
-		if runtime.GOOS == "windows" {
-			conn, err = npipe.DialTimeout(socket, 50*time.Millisecond)
-		} else {
-			conn, err = net.Dial("unix", socket)
-		}
+		conn, err := dialIPC(socket, 50*time.Millisecond)
 		if err == nil {
 			return conn, nil
 		}
@@ -209,6 +201,19 @@ func (m *MPV) LoadTrack(src string, track search.Result) error {
 		return err
 	}
 	m.emit(Event{Kind: EventTrackChange, Track: track, Source: src})
+	return nil
+}
+
+// Stop detiene la reproducción y vacía la lista interna de mpv mediante el comando
+// `stop`, dejando el proceso vivo y ocioso para reproducir más tarde. El estado de
+// pausa se restablece a falso.
+func (m *MPV) Stop() error {
+	if _, err := m.command("stop"); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	m.paused = false
+	m.mu.Unlock()
 	return nil
 }
 
