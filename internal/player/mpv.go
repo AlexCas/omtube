@@ -7,12 +7,10 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"runtime"
 	"sync"
 	"time"
 
 	"github.com/alexcasdev/terminaltube/internal/search"
-	"gopkg.in/natefinch/npipe.v2"
 )
 
 // MPV controla un proceso mpv en modo idle a través de su socket IPC JSON.
@@ -89,13 +87,7 @@ func dialWithRetry(socket string, timeout time.Duration) (net.Conn, error) {
 	deadline := time.Now().Add(timeout)
 	var lastErr error
 	for time.Now().Before(deadline) {
-		var conn net.Conn
-		var err error
-		if runtime.GOOS == "windows" {
-			conn, err = npipe.DialTimeout(socket, 50*time.Millisecond)
-		} else {
-			conn, err = net.Dial("unix", socket)
-		}
+		conn, err := dialIPC(socket, 50*time.Millisecond)
 		if err == nil {
 			return conn, nil
 		}
