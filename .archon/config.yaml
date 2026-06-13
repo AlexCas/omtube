@@ -4,6 +4,16 @@ skill_count: 24
 created_at: 2026-06-11T06:09:18.34689859Z
 mutation_testing:
     enabled: false
+models:
+    phases:
+        apply: Sonnet 4.6
+        archive: Haiku 4.5
+        design: Opus 4.8
+        explore: Sonnet 4.8
+        propose: Opus 4.8
+        spec: Opus 4.8
+        tasks: Opus 4.8
+        verify: Opus 4.8
 skill_inventory:
     - name: _shared
       version: "1.0"
