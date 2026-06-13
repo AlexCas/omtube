@@ -21,6 +21,16 @@ func (m Model) View() string {
 		return m.picker.View()
 	}
 
+	// modeResults: modal de pantalla completa; la vista principal queda oculta.
+	if m.mode == modeResults {
+		var rb strings.Builder
+		rb.WriteString(m.resultsList.View())
+		rb.WriteString("\n")
+		rb.WriteString(m.styles.help.Render(
+			"enter encolar · a +playlist · f favorito · ↑/↓ navegar · esc cerrar"))
+		return rb.String()
+	}
+
 	if m.mode == modeLibrary || m.mode == modeCreatePlaylist {
 		return m.renderLibrary()
 	}
@@ -37,10 +47,9 @@ func (m Model) View() string {
 	}
 	b.WriteString("\n\n")
 
-	// Paneles: resultados y cola lado a lado.
-	results := m.renderResults()
-	q := m.renderQueue()
-	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, results, q))
+	// Panel de cola: visible siempre en la vista principal a tamaño completo.
+	// El panel de resultados se mueve al modal modeResults y ya no se dibuja aquí.
+	b.WriteString(m.renderQueue())
 	b.WriteString("\n")
 
 	// Paneles de enriquecimiento (letra/portada). Solo se dibujan cuando su
@@ -112,26 +121,6 @@ func (m Model) center(s string) string {
 		return s
 	}
 	return lipgloss.PlaceHorizontal(m.width, lipgloss.Center, s)
-}
-
-func (m Model) renderResults() string {
-	var b strings.Builder
-	b.WriteString(m.styles.heading.Render("Resultados"))
-	b.WriteString("\n")
-	if len(m.results) == 0 {
-		b.WriteString(m.styles.dim.Render("(vacío)"))
-	}
-	for i, r := range m.results {
-		line := fmt.Sprintf("%s  %s", r.Title, m.styles.dim.Render(r.Uploader))
-		if i == m.cursor {
-			line = m.styles.selected.Render("➤ " + line)
-		} else {
-			line = "  " + line
-		}
-		b.WriteString(m.cacheMark(r.ID) + truncate(line, 44))
-		b.WriteString("\n")
-	}
-	return m.styles.panel.Width(48).Render(b.String())
 }
 
 // maxQueueRows es el número máximo de pistas que el panel de cola dibuja a la vez.

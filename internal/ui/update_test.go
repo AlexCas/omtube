@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"go.uber.org/zap"
 
@@ -315,6 +316,10 @@ func TestURLResolvedEnqueuesAndExposesResult(t *testing.T) {
 	if !strings.Contains(um.status, "playlist") {
 		t.Fatalf("el estado debería sugerir añadir a playlist: %q", um.status)
 	}
+	// D1: una pista resuelta desde URL nunca debe abrir el modal de resultados.
+	if um.mode != modeNormal {
+		t.Fatalf("URL resuelta debería mantener modeNormal, got %v", um.mode)
+	}
 }
 
 func TestURLResolveErrorSurfaces(t *testing.T) {
@@ -512,5 +517,203 @@ func TestStaleEnrichmentDiscarded(t *testing.T) {
 	updated, _ = updated.(Model).Update(lyricsMsg{videoID: "current", lyrics: lyrics.Lyrics{Plain: "actual"}})
 	if updated.(Model).curLyrics.Plain != "actual" {
 		t.Fatalf("una respuesta de la pista actual debería aplicarse")
+	}
+}
+
+// --- Tests del modal modeResults ---
+
+// TestSearchResultsModalOpensFromNormal verifica que una búsqueda multi-resultado
+// desde modeNormal abre el modal modeResults con los ítems poblados.
+func TestSearchResultsModalOpensFromNormal(t *testing.T) {
+	m := newTestModel(t, Services{})
+	m.mode = modeNormal
+	results := []search.Result{
+		{ID: "a", Title: "Canción A", Uploader: "Artista A"},
+		{ID: "b", Title: "Canción B", Uploader: "Artista B"},
+	}
+
+	updated, _ := m.Update(searchResultsMsg{results: results})
+	um := updated.(Model)
+
+	if um.mode != modeResults {
+		t.Fatalf("esperaba modeResults tras búsqueda multi-resultado, got %v", um.mode)
+	}
+	if n := len(um.resultsList.Items()); n != 2 {
+		t.Fatalf("esperaba 2 ítems en resultsList, got %d", n)
+	}
+}
+
+// TestSearchResultsModalAsyncGuard verifica que una búsqueda que llega mientras la
+// UI está en modeLibrary no secuestra el modo activo.
+func TestSearchResultsModalAsyncGuard(t *testing.T) {
+	m := newTestModel(t, Services{})
+	m.mode = modeLibrary
+	results := []search.Result{
+		{ID: "a", Title: "A"},
+		{ID: "b", Title: "B"},
+	}
+
+	updated, _ := m.Update(searchResultsMsg{results: results})
+	um := updated.(Model)
+
+	if um.mode != modeLibrary {
+		t.Fatalf("guardia asíncrona: modeLibrary debe preservarse, got %v", um.mode)
+	}
+}
+
+// TestResultsModalQuitKeyDoesNotQuit verifica que pulsar "q" dentro del modal no
+// dispara tea.Quit (que saltaría el cierre limpio del reproductor): el binding de
+// salida del list está deshabilitado, así que "q" queda inerte y el modal sigue
+// abierto. El cierre del modal es responsabilidad de Esc.
+func TestResultsModalQuitKeyDoesNotQuit(t *testing.T) {
+	m := newTestModel(t, Services{})
+	m.mode = modeResults
+	m.resultsList.SetItems([]list.Item{
+		resultItem{r: search.Result{ID: "a", Title: "A"}, mark: "  "},
+	})
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	um := updated.(Model)
+
+	if um.mode != modeResults {
+		t.Fatalf("\"q\" no debe cerrar el modal, mode=%v", um.mode)
+	}
+	if cmd != nil {
+		if _, ok := cmd().(tea.QuitMsg); ok {
+			t.Fatal("\"q\" en modeResults no debe disparar tea.Quit")
+		}
+	}
+}
+
+// TestResultsModalCtrlCQuitsCleanly verifica que ctrl+c dentro del modal sí hace
+// hard-quit, pero por el camino limpio (marca quitting y dispara tea.Quit), a
+// diferencia de "q" que queda inerte.
+func TestResultsModalCtrlCQuitsCleanly(t *testing.T) {
+	m := newTestModel(t, Services{})
+	m.mode = modeResults
+	m.resultsList.SetItems([]list.Item{
+		resultItem{r: search.Result{ID: "a", Title: "A"}, mark: "  "},
+	})
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	um := updated.(Model)
+
+	if !um.quitting {
+		t.Fatal("ctrl+c en modeResults debería marcar quitting (cierre limpio)")
+	}
+	if cmd == nil {
+		t.Fatal("ctrl+c en modeResults debería devolver un comando")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatal("ctrl+c en modeResults debería disparar tea.Quit")
+	}
+}
+
+// TestResultsModalEscReturnsNormal verifica que Esc cierra el modal sin encolar nada.
+func TestResultsModalEscReturnsNormal(t *testing.T) {
+	m := newTestModel(t, Services{})
+	m.mode = modeResults
+	items := []list.Item{
+		resultItem{r: search.Result{ID: "a", Title: "A"}, mark: "  "},
+	}
+	m.resultsList.SetItems(items)
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	um := updated.(Model)
+
+	if um.mode != modeNormal {
+		t.Fatalf("Esc en modeResults debería volver a modeNormal, got %v", um.mode)
+	}
+	if um.queue.Len() != 0 {
+		t.Fatalf("Esc no debe encolar nada, Len=%d", um.queue.Len())
+	}
+}
+
+// TestResultsModalEnterEnqueues verifica que Enter encola la pista seleccionada y
+// cierra el modal.
+func TestResultsModalEnterEnqueues(t *testing.T) {
+	m := newTestModel(t, Services{})
+	m.mode = modeResults
+	track := search.Result{ID: "vid", Title: "Pista", Uploader: "Artista"}
+	items := []list.Item{resultItem{r: track, mark: "  "}}
+	m.resultsList.SetItems(items)
+	m.resultsList.Select(0)
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	um := updated.(Model)
+
+	if um.mode != modeNormal {
+		t.Fatalf("Enter en modeResults debería volver a modeNormal, got %v", um.mode)
+	}
+	if um.queue.Len() != 1 {
+		t.Fatalf("Enter en modeResults debería encolar la pista, Len=%d", um.queue.Len())
+	}
+}
+
+// TestResultsModalAddToPlaylistSetsPicker verifica que `a` abre el picker de
+// playlists con pickerReturn==modeResults, de modo que al volver se retorna al modal.
+func TestResultsModalAddToPlaylistSetsPicker(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	pl := playlist.New(db.Playlists(), db.Tracks())
+	if _, err := pl.Create("Lista"); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	m := New(config.Config{}, nil, newFakePlayer(), nil, pl, nil, Services{}, zap.NewNop())
+	m.width, m.height = 120, 40
+	m.mode = modeResults
+	track := search.Result{ID: "vid", Title: "Pista"}
+	items := []list.Item{resultItem{r: track, mark: "  "}}
+	m.resultsList.SetItems(items)
+	m.resultsList.Select(0)
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	um := updated.(Model)
+
+	if um.mode != modePicker {
+		t.Fatalf("`a` desde modeResults debería abrir modePicker, got %v", um.mode)
+	}
+	if um.pickerReturn != modeResults {
+		t.Fatalf("pickerReturn debería ser modeResults, got %v", um.pickerReturn)
+	}
+
+	// Al confirmar la selección en el picker, se debe volver a modeResults (no a
+	// modeLibrary, por eso no se llama refreshLibrary).
+	updated, _ = um.updatePickerMode(tea.KeyMsg{Type: tea.KeyEnter})
+	um = updated.(Model)
+	if um.mode != modeResults {
+		t.Fatalf("tras picker, debería volver a modeResults, got %v", um.mode)
+	}
+}
+
+// TestSearchEmptyInputRunsNoSearchAndDoesNotReopenModal verifica que enviar una
+// búsqueda vacía desde modeSearch vuelve a modeNormal sin lanzar comando ni
+// reabrir el modal con los resultados anteriores (D2).
+func TestSearchEmptyInputRunsNoSearchAndDoesNotReopenModal(t *testing.T) {
+	m := newTestModel(t, Services{})
+	// Simular que ya había resultados previos en el modal.
+	m.mode = modeSearch
+	m.results = []search.Result{{ID: "old", Title: "Anterior"}}
+	m.resultsList.SetItems([]list.Item{
+		resultItem{r: search.Result{ID: "old", Title: "Anterior"}, mark: "  "},
+	})
+
+	// Enviar búsqueda vacía (Enter con input vacío): no lanza searchCmd.
+	updated, cmd := m.updateSearchMode(tea.KeyMsg{Type: tea.KeyEnter})
+	um := updated.(Model)
+
+	if um.mode != modeNormal {
+		t.Fatalf("búsqueda vacía debería volver a modeNormal, got %v", um.mode)
+	}
+	if cmd != nil {
+		t.Fatal("búsqueda vacía no debería lanzar un comando")
+	}
+	// El modal no debe reabrirse con los resultados anteriores.
+	if um.mode == modeResults {
+		t.Fatal("búsqueda vacía no debe reabrir el modal de resultados")
 	}
 }
