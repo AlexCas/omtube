@@ -8,6 +8,32 @@ import (
 
 func track(id string) search.Result { return search.Result{ID: id, Title: id} }
 
+func TestClearEmptiesAndResets(t *testing.T) {
+	q := New()
+	q.Add(track("a"))
+	q.Add(track("b"))
+	q.Next()
+
+	q.Clear()
+
+	if q.Len() != 0 {
+		t.Fatalf("tras Clear, Len = %d; want 0", q.Len())
+	}
+	if q.Index() != -1 {
+		t.Fatalf("tras Clear, Index = %d; want -1", q.Index())
+	}
+	if _, ok := q.Current(); ok {
+		t.Fatal("tras Clear no debe haber pista actual")
+	}
+
+	// El cero-value resultante sigue usable: un Add posterior fija la actual.
+	q.Add(track("c"))
+	cur, ok := q.Current()
+	if !ok || cur.ID != "c" {
+		t.Fatalf("tras Clear+Add, Current = (%+v, %v); want pista c", cur, ok)
+	}
+}
+
 func TestEmptyQueue(t *testing.T) {
 	q := New()
 	if _, ok := q.Current(); ok {

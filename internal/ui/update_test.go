@@ -22,6 +22,7 @@ type fakePlayer struct {
 	paused  bool
 	volume  int
 	pos, du float64
+	stopped int
 }
 
 func newFakePlayer() *fakePlayer {
@@ -35,6 +36,7 @@ func (f *fakePlayer) LoadTrack(src string, t search.Result) error {
 	return nil
 }
 func (f *fakePlayer) TogglePause() error           { f.paused = !f.paused; return nil }
+func (f *fakePlayer) Stop() error                  { f.stopped++; f.paused = false; return nil }
 func (f *fakePlayer) AddVolume(d int) (int, error) { f.volume += d; return f.volume, nil }
 func (f *fakePlayer) Position() (float64, float64) { return f.pos, f.du }
 func (f *fakePlayer) Paused() bool                 { return f.paused }

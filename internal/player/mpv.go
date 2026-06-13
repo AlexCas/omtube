@@ -204,6 +204,19 @@ func (m *MPV) LoadTrack(src string, track search.Result) error {
 	return nil
 }
 
+// Stop detiene la reproducción y vacía la lista interna de mpv mediante el comando
+// `stop`, dejando el proceso vivo y ocioso para reproducir más tarde. El estado de
+// pausa se restablece a falso.
+func (m *MPV) Stop() error {
+	if _, err := m.command("stop"); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	m.paused = false
+	m.mu.Unlock()
+	return nil
+}
+
 // TogglePause alterna pausa/reproducción y sincroniza el estado real desde mpv.
 func (m *MPV) TogglePause() error {
 	if _, err := m.command("cycle", "pause"); err != nil {

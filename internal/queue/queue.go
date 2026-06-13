@@ -22,6 +22,14 @@ func (q *Queue) Add(r search.Result) {
 	}
 }
 
+// Clear vacía la cola por completo: elimina todas las pistas y deja sin pista
+// actual. El cero-value resultante sigue siendo usable; un Add posterior vuelve a
+// fijar la pista actual.
+func (q *Queue) Clear() {
+	q.items = nil
+	q.idx = -1
+}
+
 // Items devuelve la lista de pistas (no modificar).
 func (q *Queue) Items() []search.Result { return q.items }
 
