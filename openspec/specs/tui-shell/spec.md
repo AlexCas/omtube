@@ -105,6 +105,13 @@ it; when both enrichment services are off, the row MUST contain only the queue.
 - THEN the lyrics and cover panels are drawn in the same horizontal row as the queue (queue | lyrics | cover)
 - AND when both enrichment services are off the row contains only the queue
 
+#### Scenario: Now playing centered under enrichment
+
+- GIVEN the TUI is in the main view with the enrichment panels active
+- WHEN the now-playing line (current track title, progress and volume) is rendered
+- THEN it is centered under the lyrics+cover block (indented to the right of the queue)
+- AND when both enrichment services are off it is left-aligned under the queue as before
+
 #### Scenario: Opening search does not reopen previous results
 
 - GIVEN results from a previous search existed

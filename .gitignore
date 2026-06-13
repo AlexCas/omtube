@@ -1,5 +1,6 @@
 # Compiled binary
 /terminaltube
+/omusic
 
 # Go build artifacts
 *.exe

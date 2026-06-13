@@ -53,15 +53,25 @@ func (m Model) View() string {
 	// Con los toggles apagados renderEnrichment devuelve "" y la fila queda solo
 	// con la cola (paridad Fase 2); no pasamos "" a JoinHorizontal porque añadiría
 	// una columna fantasma que descuadra la cola.
-	mainRow := m.renderQueue()
-	if enrich := m.renderEnrichment(); enrich != "" {
-		mainRow = lipgloss.JoinHorizontal(lipgloss.Top, mainRow, enrich)
+	queueBlock := m.renderQueue()
+	enrich := m.renderEnrichment()
+	mainRow := queueBlock
+	if enrich != "" {
+		mainRow = lipgloss.JoinHorizontal(lipgloss.Top, queueBlock, enrich)
 	}
 	b.WriteString(mainRow)
 	b.WriteString("\n")
 
-	// Now playing + progreso.
-	b.WriteString(m.renderNowPlaying())
+	// Now playing + progreso. Con paneles de enriquecimiento activos se centra
+	// bajo ese bloque (a la derecha de la cola): se sangra el ancho de la cola y
+	// se centra dentro del ancho del bloque letra+portada. Sin enriquecimiento
+	// (toggles apagados) va a la izquierda como antes.
+	nowPlaying := m.renderNowPlaying()
+	if enrich != "" {
+		nowPlaying = strings.Repeat(" ", lipgloss.Width(queueBlock)) +
+			lipgloss.PlaceHorizontal(lipgloss.Width(enrich), lipgloss.Center, nowPlaying)
+	}
+	b.WriteString(nowPlaying)
 	b.WriteString("\n")
 	help := m.renderHelp()
 	b.WriteString(help)
