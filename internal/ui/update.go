@@ -21,6 +21,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.picker.SetSize(msg.Width, msg.Height-4)
+		m.resultsList.SetSize(msg.Width, msg.Height-4)
 		return m, nil
 
 	case tea.KeyMsg:
@@ -43,6 +44,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateLyricsSearchMode(msg)
 		case modeLyricsPicker:
 			return m.updateLyricsPickerMode(msg)
+		case modeResults:
+			return m.updateResultsMode(msg)
 		default:
 			return m.updateNormalMode(msg)
 		}
@@ -57,8 +60,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cursor = 0
 		if len(m.results) == 0 {
 			m.status = "Sin resultados."
-		} else {
-			m.status = fmt.Sprintf("%d resultados. Enter para encolar.", len(m.results))
+			return m, nil
+		}
+		m.status = fmt.Sprintf("%d resultados.", len(m.results))
+		// Guardia asíncrona: abrir el modal solo si la UI está en modo normal o
+		// búsqueda. Un resultado que llega mientras el usuario navega la biblioteca
+		// o tiene otro modal abierto no debe secuestrar el modo activo.
+		if m.mode == modeNormal || m.mode == modeSearch {
+			items := make([]list.Item, 0, len(m.results))
+			for _, r := range m.results {
+				items = append(items, resultItem{r: r, mark: m.cacheMark(r.ID)})
+			}
+			m.resultsList.SetItems(items)
+			m.resultsList.Select(0)
+			m.mode = modeResults
 		}
 		return m, nil
 
@@ -809,6 +824,59 @@ func (m Model) updatePickerMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	var cmd tea.Cmd
 	m.picker, cmd = m.picker.Update(msg)
+	return m, cmd
+}
+
+// updateResultsMode gestiona la navegación y acciones del modal de resultados de
+// búsqueda (modeResults). Espeja la estructura de updatePickerMode.
+func (m Model) updateResultsMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case msg.Type == tea.KeyCtrlC:
+		// ctrl+c hace hard-quit en cualquier modo; cerramos limpio el reproductor.
+		m.quitting = true
+		_ = m.player.Close()
+		return m, tea.Quit
+
+	case key.Matches(msg, m.keys.Cancel):
+		// Esc cierra el modal y vuelve al modo normal sin encolar nada.
+		m.mode = modeNormal
+		return m, nil
+
+	case key.Matches(msg, m.keys.Enqueue):
+		// Enter encola el resultado seleccionado y cierra el modal.
+		it, ok := m.resultsList.SelectedItem().(resultItem)
+		m.mode = modeNormal
+		if !ok {
+			return m, nil
+		}
+		track := it.r
+		m.queue.Add(track)
+		if !m.started {
+			m.started = true
+			return m, loadTrackCmd(m.player, m.cache, track)
+		}
+		m.status = "Añadido a la cola: " + track.Title
+		return m, nil
+
+	case key.Matches(msg, m.keys.AddToPlaylist):
+		// `a` abre el picker de playlists; al volver debe retornar al modal.
+		it, ok := m.resultsList.SelectedItem().(resultItem)
+		if !ok {
+			return m, nil
+		}
+		return m.openPlaylistPicker(it.r)
+
+	case key.Matches(msg, m.keys.Favorite):
+		// `f` alterna favorito sin cerrar el modal.
+		if it, ok := m.resultsList.SelectedItem().(resultItem); ok {
+			m.toggleFavorite(it.r)
+		}
+		return m, nil
+	}
+
+	// Navegación (↑/↓/j/k) y cualquier tecla de lista se delegan al componente.
+	var cmd tea.Cmd
+	m.resultsList, cmd = m.resultsList.Update(msg)
 	return m, cmd
 }
 

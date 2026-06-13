@@ -65,6 +65,7 @@ const (
 	modeImportName     // prompt de nombre tras resolver una playlist importada
 	modeLyricsSearch   // prompt de consulta para la búsqueda manual de letra
 	modeLyricsPicker   // selección de candidato de letra
+	modeResults        // modal de pantalla completa con los resultados de búsqueda
 )
 
 // librarySection identifica la sección activa del modo biblioteca.
@@ -96,10 +97,11 @@ type Model struct {
 	artwork  artworkService
 	presence presenceService
 
-	keys   keyMap
-	styles styles
-	input  textinput.Model
-	picker list.Model
+	keys        keyMap
+	styles      styles
+	input       textinput.Model
+	picker      list.Model
+	resultsList list.Model // modal de resultados de búsqueda (modeResults)
 
 	mode      mode
 	results   []search.Result
@@ -167,33 +169,49 @@ func New(cfg config.Config, s search.Searcher, p player.Player, h *history.Histo
 	picker.SetShowStatusBar(false)
 	picker.SetFilteringEnabled(false)
 
+	// resultsList es el modal de pantalla completa que presenta los resultados de
+	// una búsqueda multi-resultado. Reutiliza el mismo patrón que picker.
+	rl := list.New(nil, list.NewDefaultDelegate(), 0, 0)
+	rl.Title = "Resultados"
+	rl.SetShowHelp(false)
+	rl.SetShowStatusBar(false)
+	rl.SetFilteringEnabled(false)
+	// El binding de salida de bubbles/list está ligado a "q"/"esc" (Quit) y "ctrl+c"
+	// (ForceQuit), y devuelve tea.Quit saltándose el cierre limpio del reproductor.
+	// DisableQuitKeybindings fija el flag persistente que el list respeta (un
+	// SetEnabled directo se re-habilita en su propio Update). Esc lo gestiona
+	// updateResultsMode (cierra el modal) y ctrl+c se intercepta allí para un cierre
+	// limpio; "q" queda inerte dentro del modal.
+	rl.DisableQuitKeybindings()
+
 	// El buscador concreto (yt-dlp) también resuelve URLs de vídeo y de playlist;
 	// se exponen tras sus interfaces para que la UI pueda degradar si no están.
 	resolver, _ := s.(search.Resolver)
 	plResolver, _ := s.(search.PlaylistResolver)
 
 	return Model{
-		cfg:        cfg,
-		searcher:   s,
-		resolver:   resolver,
-		plResolver: plResolver,
-		player:     p,
-		queue:      queue.New(),
-		history:    h,
-		playlists:  pl,
-		favorites:  fav,
-		cache:      svc.Cache,
-		lyrics:     svc.Lyrics,
-		artwork:    svc.Artwork,
-		presence:   svc.Presence,
-		logger:     logger,
-		keys:       defaultKeys(),
-		styles:     defaultStyles(),
-		input:      in,
-		picker:     picker,
-		lyricLine:  -1,
-		cachedIDs:  make(map[string]bool),
-		status:     "Pulsa / para buscar · L biblioteca.",
+		cfg:         cfg,
+		searcher:    s,
+		resolver:    resolver,
+		plResolver:  plResolver,
+		player:      p,
+		queue:       queue.New(),
+		history:     h,
+		playlists:   pl,
+		favorites:   fav,
+		cache:       svc.Cache,
+		lyrics:      svc.Lyrics,
+		artwork:     svc.Artwork,
+		presence:    svc.Presence,
+		logger:      logger,
+		keys:        defaultKeys(),
+		styles:      defaultStyles(),
+		input:       in,
+		picker:      picker,
+		resultsList: rl,
+		lyricLine:   -1,
+		cachedIDs:   make(map[string]bool),
+		status:      "Pulsa / para buscar · L biblioteca.",
 	}
 }
 
@@ -216,6 +234,18 @@ func (i candidateItem) Title() string {
 }
 func (i candidateItem) Description() string { return i.c.Artist }
 func (i candidateItem) FilterValue() string { return i.c.Title }
+
+// resultItem adapta search.Result al list.Item del modal de resultados de búsqueda.
+// El indicador de caché (mark) se antepone al título para no requerir un delegate
+// personalizado, igual que candidateItem usa un prefijo emoji.
+type resultItem struct {
+	r    search.Result
+	mark string
+}
+
+func (i resultItem) Title() string       { return i.mark + i.r.Title }
+func (i resultItem) Description() string { return i.r.Uploader }
+func (i resultItem) FilterValue() string { return i.r.Title }
 
 // Init arranca el bucle de eventos del reproductor y el tick de progreso.
 func (m Model) Init() tea.Cmd {

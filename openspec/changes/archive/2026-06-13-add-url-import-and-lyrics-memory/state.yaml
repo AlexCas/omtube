@@ -1,4 +1,4 @@
-phase: apply
+phase: archive
 status: completed
 history:
   - {phase: explore, status: completed, ts: "2026-06-13T01:00:10Z"}
@@ -12,6 +12,9 @@ history:
   - {phase: tasks, status: completed, ts: "2026-06-13T01:04:10Z"}
   - {phase: apply, status: in_progress, ts: "2026-06-13T01:05:00Z"}
   - {phase: apply, status: completed, ts: "2026-06-13T01:45:00Z"}
+  - {phase: verify, status: skipped-override, ts: "2026-06-13"}
+  - {phase: judge, status: skipped-override, ts: "2026-06-13"}
+  - {phase: archive, status: completed, ts: "2026-06-13"}
 # Apply en cadena de 3 PRs: PR1 search/queue/player (+fix build npipe), PR2 storage/lyrics, PR3 UI.
 # go build/test/vet en verde; cross-build a Windows OK. Pendiente: smoke manual de TUI y verify/judge/archive tras merge.
 # Cambio nuevo: ingesta por URL (vídeo + playlist), memoria de letra (búsqueda manual + persistencia), limpiar cola.
