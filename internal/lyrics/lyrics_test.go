@@ -261,6 +261,113 @@ func TestFetchSearchFallbackDisabled(t *testing.T) {
 	}
 }
 
+func TestSearchReturnsCandidates(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/search" {
+			t.Errorf("ruta inesperada: %s", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("q"); got != "numb linkin" {
+			t.Errorf("q = %q, want \"numb linkin\"", got)
+		}
+		_, _ = w.Write([]byte(`[
+			{"id":111,"trackName":"Numb","artistName":"Linkin Park","duration":185,"syncedLyrics":"[00:01.00]a","plainLyrics":"a"},
+			{"id":222,"trackName":"Numb (live)","artistName":"Linkin Park","duration":190,"syncedLyrics":"","plainLyrics":"texto"},
+			{"id":333,"trackName":"Sin letra","artistName":"X","duration":0,"syncedLyrics":"","plainLyrics":""}
+		]`))
+	}))
+	defer srv.Close()
+
+	s := newService(t, nil, srv)
+	cands, err := s.Search(context.Background(), "numb linkin")
+	if err != nil {
+		t.Fatalf("Search err: %v", err)
+	}
+	// El candidato sin letra (id 333) se descarta.
+	if len(cands) != 2 {
+		t.Fatalf("se esperaban 2 candidatos con letra, got %d: %+v", len(cands), cands)
+	}
+	if cands[0].ProviderID != "111" || !cands[0].Synced || cands[0].Query != "numb linkin" {
+		t.Fatalf("candidato 0 incorrecto: %+v", cands[0])
+	}
+	if cands[1].ProviderID != "222" || cands[1].Synced {
+		t.Fatalf("candidato 1 (plano) incorrecto: %+v", cands[1])
+	}
+}
+
+func TestSelectCandidatePersistsReference(t *testing.T) {
+	track := search.Result{ID: "vidsel", Title: "Numb", Uploader: "Linkin Park", Duration: 185}
+	repo := newRepo(t, track)
+	s := New(repo, http.DefaultClient)
+
+	cand := Candidate{
+		ProviderID: "111",
+		Title:      "Numb",
+		Artist:     "Linkin Park",
+		Synced:     true,
+		Query:      "numb linkin",
+		body:       "[00:01.00]Encontrada",
+	}
+	l, err := s.SelectCandidate(context.Background(), track, cand)
+	if err != nil {
+		t.Fatalf("SelectCandidate err: %v", err)
+	}
+	if !l.Synced || len(l.Lines) != 1 || l.Lines[0].Text != "Encontrada" {
+		t.Fatalf("letra seleccionada incorrecta: %+v", l)
+	}
+
+	entry, found, err := repo.Get(track.ID)
+	if err != nil || !found {
+		t.Fatalf("Get tras selección = (found=%v, err=%v)", found, err)
+	}
+	if entry.Query != "numb linkin" || entry.ProviderID != "111" {
+		t.Fatalf("referencia no persistida: query=%q provider_id=%q", entry.Query, entry.ProviderID)
+	}
+	if entry.Body != "[00:01.00]Encontrada" || !entry.Synced {
+		t.Fatalf("cuerpo/synced no persistido: %+v", entry)
+	}
+}
+
+func TestFetchReusesSavedProviderID(t *testing.T) {
+	var byIDHits, autoGetHits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/get/999":
+			atomic.AddInt32(&byIDHits, 1)
+			_, _ = w.Write([]byte(`{"syncedLyrics":"[00:02.00]PorReferencia","plainLyrics":""}`))
+		case "/api/get":
+			atomic.AddInt32(&autoGetHits, 1)
+			w.WriteHeader(http.StatusNotFound)
+		default:
+			t.Errorf("ruta inesperada: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	track := search.Result{ID: "vidref", Title: "Song", Uploader: "Artist", Duration: 180}
+	repo := newRepo(t, track)
+	// Sembrar una referencia guardada SIN cuerpo (simula cuerpo perdido pero
+	// referencia conservada): fromCache falla y debe entrar el reuso por provider_id.
+	if err := repo.Upsert(storage.LyricsEntry{VideoID: track.ID, Body: "", ProviderID: "999"}); err != nil {
+		t.Fatalf("seed reference: %v", err)
+	}
+	s := newService(t, repo, srv)
+
+	l, err := s.Fetch(context.Background(), track, "Song", "Artist")
+	if err != nil {
+		t.Fatalf("Fetch err: %v", err)
+	}
+	if !l.Synced || len(l.Lines) != 1 || l.Lines[0].Text != "PorReferencia" {
+		t.Fatalf("se esperaba letra resuelta por referencia guardada, got %+v", l)
+	}
+	if atomic.LoadInt32(&byIDHits) != 1 {
+		t.Fatalf("se esperaba 1 golpe a /api/get/999, got %d", byIDHits)
+	}
+	if atomic.LoadInt32(&autoGetHits) != 0 {
+		t.Fatalf("no debe usarse la consulta automática cuando hay referencia, hits=%d", autoGetHits)
+	}
+}
+
 func TestFetchCacheHitSkipsHTTP(t *testing.T) {
 	var hits int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -45,16 +45,16 @@ Cada PR construye y `go test ./...` en verde antes del siguiente.
 
 ## Phase 2: Storage + Lyrics Memory (PR 2)
 
-- [ ] 2.1 Modify `internal/storage/migrate.go`: añadir `migrations[2]` (migración 3) con
+- [x] 2.1 Modify `internal/storage/migrate.go`: añadir `migrations[2]` (migración 3) con
   `ALTER TABLE lyrics_cache ADD COLUMN query TEXT NOT NULL DEFAULT ''` y
   `ADD COLUMN provider_id TEXT NOT NULL DEFAULT ''`.
-- [ ] 2.2 Modify `internal/storage/lyrics_cache.go`: añadir `Query` y `ProviderID` a
+- [x] 2.2 Modify `internal/storage/lyrics_cache.go`: añadir `Query` y `ProviderID` a
   `LyricsEntry`; persistirlos en `upsertLyricsQuery`/`UpsertWithTrack`; leerlos en `Get`.
-- [ ] 2.3 Modify `internal/lyrics/lyrics.go`: `Candidate` struct; `Search(ctx,query)` que
+- [x] 2.3 Modify `internal/lyrics/lyrics.go`: `Candidate` struct; `Search(ctx,query)` que
   consulta `/api/search` y devuelve candidatos rankeados (reusar `pickBestCandidate`/
   parsing existente, exponiendo id de proveedor); `SelectCandidate(ctx,track,c)` que carga
   la letra del candidato y persiste `query`/`provider_id` vía `UpsertWithTrack`.
-- [ ] 2.4 Modify `internal/lyrics/lyrics.go`: en `Fetch`, si `Get(track.ID)` trae
+- [x] 2.4 Modify `internal/lyrics/lyrics.go`: en `Fetch`, si `Get(track.ID)` trae
   `provider_id`/`query` guardados, resolver con esa referencia (`/api/get?...` por id o la
   query guardada) antes de la consulta normalizada automática.
 
@@ -87,9 +87,9 @@ Cada PR construye y `go test ./...` en verde antes del siguiente.
   yt-dlp; descarte de entradas sin id; orden preservado.
 - [x] 4.3 Modify `internal/queue/queue_test.go`: `Clear` vacía y resetea idx; re-`Add` fija
   la pista actual.
-- [ ] 4.4 Modify `internal/storage/migrate_test.go`: migración 3 idempotente; `user_version`
+- [x] 4.4 Modify `internal/storage/migrate_test.go`: migración 3 idempotente; `user_version`
   2→3; filas previas conservan default en columnas nuevas.
-- [ ] 4.5 Modify `internal/lyrics/lyrics_test.go` (`httptest.Server`): `Search` candidatos;
+- [x] 4.5 Modify `internal/lyrics/lyrics_test.go` (`httptest.Server`): `Search` candidatos;
   `SelectCandidate` carga+persiste `query`/`provider_id`; `Fetch` reusa la referencia
   guardada antes que la consulta automática.
 - [ ] 4.6 Modify `internal/ui/update_test.go`: `Update` de modos nuevos (URL/import/letra) y

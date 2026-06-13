@@ -16,6 +16,11 @@ type LyricsEntry struct {
 	Synced    bool
 	Body      string
 	FetchedAt string
+	// Query es la consulta con la que el usuario encontró la letra manualmente.
+	Query string
+	// ProviderID es la referencia del proveedor (id de pista de lrclib) con la
+	// que se resolvió la letra, para reusarla en re-reproducciones.
+	ProviderID string
 }
 
 // LyricsRepo persiste las letras resueltas para evitar peticiones HTTP
@@ -25,14 +30,19 @@ type LyricsRepo struct {
 }
 
 // upsertLyricsQuery registra o actualiza las letras cacheadas de una pista.
-// Renueva fetched_at a "ahora" en cada llamada.
+// Renueva fetched_at a "ahora" en cada llamada. query y provider_id solo se
+// sobrescriben cuando el valor entrante no está vacío: así un re-fetch automático
+// (que no aporta referencia) no borra la referencia que el usuario guardó con una
+// búsqueda manual.
 const upsertLyricsQuery = `
-INSERT INTO lyrics_cache (video_id, synced, body)
-VALUES (?, ?, ?)
+INSERT INTO lyrics_cache (video_id, synced, body, query, provider_id)
+VALUES (?, ?, ?, ?, ?)
 ON CONFLICT(video_id) DO UPDATE SET
-	synced     = excluded.synced,
-	body       = excluded.body,
-	fetched_at = datetime('now')`
+	synced      = excluded.synced,
+	body        = excluded.body,
+	fetched_at  = datetime('now'),
+	query       = CASE WHEN excluded.query       <> '' THEN excluded.query       ELSE lyrics_cache.query       END,
+	provider_id = CASE WHEN excluded.provider_id <> '' THEN excluded.provider_id ELSE lyrics_cache.provider_id END`
 
 func syncedFlag(synced bool) int {
 	if synced {
@@ -45,7 +55,7 @@ func syncedFlag(synced bool) int {
 // existir previamente en tracks (FK); para garantizarlo en una sola operación
 // atómica usa UpsertWithTrack.
 func (r *LyricsRepo) Upsert(e LyricsEntry) error {
-	if _, err := r.db.Exec(upsertLyricsQuery, e.VideoID, syncedFlag(e.Synced), e.Body); err != nil {
+	if _, err := r.db.Exec(upsertLyricsQuery, e.VideoID, syncedFlag(e.Synced), e.Body, e.Query, e.ProviderID); err != nil {
 		return fmt.Errorf("upsert lyrics %q: %w", e.VideoID, err)
 	}
 	return nil
@@ -64,7 +74,7 @@ func (r *LyricsRepo) UpsertWithTrack(track search.Result, e LyricsEntry) error {
 		_ = tx.Rollback()
 		return fmt.Errorf("upsert lyrics %q: upsert track: %w", e.VideoID, err)
 	}
-	if _, err := tx.Exec(upsertLyricsQuery, e.VideoID, syncedFlag(e.Synced), e.Body); err != nil {
+	if _, err := tx.Exec(upsertLyricsQuery, e.VideoID, syncedFlag(e.Synced), e.Body, e.Query, e.ProviderID); err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("upsert lyrics %q: %w", e.VideoID, err)
 	}
@@ -77,12 +87,12 @@ func (r *LyricsRepo) UpsertWithTrack(track search.Result, e LyricsEntry) error {
 // Get devuelve las letras cacheadas por video id. Si no existen, devuelve una
 // entrada vacía, found=false y err=nil.
 func (r *LyricsRepo) Get(videoID string) (LyricsEntry, bool, error) {
-	const q = `SELECT video_id, synced, body, fetched_at FROM lyrics_cache WHERE video_id = ?`
+	const q = `SELECT video_id, synced, body, fetched_at, query, provider_id FROM lyrics_cache WHERE video_id = ?`
 	var (
 		e      LyricsEntry
 		synced int
 	)
-	err := r.db.QueryRow(q, videoID).Scan(&e.VideoID, &synced, &e.Body, &e.FetchedAt)
+	err := r.db.QueryRow(q, videoID).Scan(&e.VideoID, &synced, &e.Body, &e.FetchedAt, &e.Query, &e.ProviderID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return LyricsEntry{}, false, nil
 	}

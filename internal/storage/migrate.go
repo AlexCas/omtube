@@ -70,6 +70,15 @@ CREATE TABLE lyrics_cache (
 	FOREIGN KEY (video_id) REFERENCES tracks(video_id) ON DELETE CASCADE
 );
 `,
+	// Migración 3: memoria de letra. Añade a lyrics_cache la consulta y la
+	// referencia del proveedor (id de pista de lrclib) con las que el usuario
+	// encontró la letra manualmente, vinculadas al video_id. Permite reusar esa
+	// referencia al re-reproducir la canción. Aditiva: las filas existentes
+	// reciben los valores por defecto ('').
+	`
+ALTER TABLE lyrics_cache ADD COLUMN query       TEXT NOT NULL DEFAULT '';
+ALTER TABLE lyrics_cache ADD COLUMN provider_id TEXT NOT NULL DEFAULT '';
+`,
 }
 
 // migrate aplica todas las migraciones cuya versión es mayor que la

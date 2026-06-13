@@ -50,7 +50,22 @@ func TestMigrateAdvancesUserVersionOnce(t *testing.T) {
 	}
 }
 
-func TestMigrate2AddsCacheTablesAndAdvancesToTwo(t *testing.T) {
+func TestMigrate2AddsCacheTables(t *testing.T) {
+	db := tmpDB(t)
+
+	// Las tablas de la migración 2 deben existir tras abrir.
+	for _, tbl := range []string{"cache_entries", "lyrics_cache"} {
+		var name string
+		err := db.SQL().QueryRow(
+			`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, tbl,
+		).Scan(&name)
+		if err != nil {
+			t.Fatalf("table %q not found after migrations: %v", tbl, err)
+		}
+	}
+}
+
+func TestMigrate3AddsLyricsReferenceColumns(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "library.db")
 
 	db, err := Open(path)
@@ -58,30 +73,30 @@ func TestMigrate2AddsCacheTablesAndAdvancesToTwo(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 
-	// La migración 2 lleva user_version a 2.
-	v, err := userVersion(db.SQL())
-	if err != nil {
-		t.Fatalf("userVersion: %v", err)
+	// Sembrar una pista y una fila de letra ANTES de comprobar columnas: simula una
+	// fila preexistente que debe conservar el default ('') en las columnas nuevas.
+	if _, err := db.SQL().Exec(`INSERT INTO tracks (video_id, title, uploader) VALUES ('vid1','T','U')`); err != nil {
+		t.Fatalf("seed track: %v", err)
 	}
-	if v != 2 {
-		t.Fatalf("user_version = %d, want 2", v)
+	if _, err := db.SQL().Exec(`INSERT INTO lyrics_cache (video_id, synced, body) VALUES ('vid1', 0, 'hola')`); err != nil {
+		t.Fatalf("seed lyrics: %v", err)
 	}
 
-	// Las tablas de la migración 2 deben existir.
-	for _, tbl := range []string{"cache_entries", "lyrics_cache"} {
-		var name string
-		err := db.SQL().QueryRow(
-			`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, tbl,
-		).Scan(&name)
-		if err != nil {
-			t.Fatalf("table %q not found after migration 2: %v", tbl, err)
-		}
+	var query, providerID string
+	err = db.SQL().QueryRow(`SELECT query, provider_id FROM lyrics_cache WHERE video_id='vid1'`).
+		Scan(&query, &providerID)
+	if err != nil {
+		t.Fatalf("select new columns: %v", err)
+	}
+	if query != "" || providerID != "" {
+		t.Fatalf("columnas nuevas sin default vacío: query=%q provider_id=%q", query, providerID)
 	}
 	if err := db.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 
-	// Reabrir: idempotente, la versión no cambia.
+	// Reabrir: idempotente, la migración 3 no se re-ejecuta (no falla por columna
+	// duplicada) y la versión queda en la última.
 	db2, err := Open(path)
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
@@ -91,8 +106,8 @@ func TestMigrate2AddsCacheTablesAndAdvancesToTwo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("userVersion reopen: %v", err)
 	}
-	if v2 != 2 {
-		t.Fatalf("user_version after reopen = %d, want 2 (idempotent)", v2)
+	if v2 != len(migrations) {
+		t.Fatalf("user_version after reopen = %d, want %d", v2, len(migrations))
 	}
 }
 
