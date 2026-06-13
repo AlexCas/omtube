@@ -1,0 +1,16 @@
+phase: apply
+status: in_progress
+history:
+  - {phase: explore, status: completed, ts: "2026-06-13T01:00:10Z"}
+  - {phase: propose, status: in_progress, ts: "2026-06-13T01:01:00Z"}
+  - {phase: propose, status: completed, ts: "2026-06-13T01:01:40Z"}
+  - {phase: spec, status: in_progress, ts: "2026-06-13T01:02:00Z"}
+  - {phase: spec, status: completed, ts: "2026-06-13T01:02:50Z"}
+  - {phase: design, status: in_progress, ts: "2026-06-13T01:03:00Z"}
+  - {phase: design, status: completed, ts: "2026-06-13T01:03:40Z"}
+  - {phase: tasks, status: in_progress, ts: "2026-06-13T01:04:00Z"}
+  - {phase: tasks, status: completed, ts: "2026-06-13T01:04:10Z"}
+  - {phase: apply, status: in_progress, ts: "2026-06-13T01:05:00Z"}
+# Cambio nuevo: ingesta por URL (vídeo + playlist), memoria de letra (búsqueda manual + persistencia), limpiar cola.
+# Detenido en la puerta de apply para revisión humana del proposal/spec/design/tasks.
+# Decisiones de producto resueltas (4). Open Decisions en design.md: teclas concretas y alcance de referencia de letra.
