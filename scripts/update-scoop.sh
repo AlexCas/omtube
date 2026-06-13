@@ -19,7 +19,9 @@ gh release download "$VERSION_TAG" --repo "$REPO" --pattern checksums.txt --dir 
 
 sha() { grep "omusic_${VERSION}_$1.tar.gz" "$WORKDIR/checksums.txt" | awk '{print $1}'; }
 SHA_WINDOWS_AMD64="$(sha windows_amd64)"
-SHA_WINDOWS_ARM64="$(sha windows_arm64)"
+# windows/arm64 no se publica: npipe.v2 no compila en esa arquitectura, así que
+# el release no genera ese binario (ver .goreleaser.yaml). El manifiesto queda
+# solo con 64bit (amd64).
 
 base="https://github.com/${REPO}/releases/download/${VERSION_TAG}"
 
@@ -45,11 +47,6 @@ cat > "$WORKDIR/bucket/bucket/omusic.json" <<EOF
         "64bit": {
             "url": "${base}/omusic_${VERSION}_windows_amd64.tar.gz",
             "hash": "${SHA_WINDOWS_AMD64}",
-            "bin": "omusic.exe"
-        },
-        "arm64": {
-            "url": "${base}/omusic_${VERSION}_windows_arm64.tar.gz",
-            "hash": "${SHA_WINDOWS_ARM64}",
             "bin": "omusic.exe"
         }
     }

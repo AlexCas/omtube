@@ -21,6 +21,15 @@ builds:
     goarch:
       - amd64
       - arm64
+    # windows/arm64 se excluye: la dependencia de IPC por named pipes
+    # (gopkg.in/natefinch/npipe.v2) solo provee stubs de syscall para windows
+    # 386/amd64, por lo que arm64 no compila. El resto de la matriz (linux y
+    # darwin amd64/arm64, windows amd64) sí se construye. Para recuperar
+    # windows/arm64 habría que migrar el dial de IPC a una librería que lo
+    # soporte (p.ej. github.com/Microsoft/go-winio).
+    ignore:
+      - goos: windows
+        goarch: arm64
     ldflags:
       - -s -w -X main.version={{ .Version }}
 
