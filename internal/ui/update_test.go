@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/alexcasdev/terminaltube/internal/config"
 	"github.com/alexcasdev/terminaltube/internal/lyrics"
+	"github.com/alexcasdev/terminaltube/internal/mpris"
 	"github.com/alexcasdev/terminaltube/internal/player"
 	"github.com/alexcasdev/terminaltube/internal/playlist"
 	"github.com/alexcasdev/terminaltube/internal/search"
@@ -44,7 +46,8 @@ func (f *fakePlayer) LoadTrack(src string, t search.Result) error {
 func (f *fakePlayer) TogglePause() error           { f.paused = !f.paused; return nil }
 func (f *fakePlayer) Stop() error                  { f.stopped++; f.paused = false; return nil }
 func (f *fakePlayer) AddVolume(d int) (int, error) { f.volume += d; return f.volume, nil }
-func (f *fakePlayer) Position() (float64, float64) { return f.pos, f.du }
+func (f *fakePlayer) Seek(offset float64) error       { f.pos += offset; return nil }
+func (f *fakePlayer) Position() (float64, float64)   { return f.pos, f.du }
 func (f *fakePlayer) Paused() bool                 { return f.paused }
 func (f *fakePlayer) Volume() int                  { return f.volume }
 func (f *fakePlayer) Events() <-chan player.Event  { return f.events }
@@ -113,6 +116,43 @@ type fakePresence struct {
 
 func (p *fakePresence) Set(title, artist string) { p.set = append(p.set, title+"|"+artist) }
 func (p *fakePresence) Clear()                   { p.clear++ }
+
+// fakeMpris registra las llamadas a los métodos del servicio MPRIS.
+type fakeMpris struct {
+	mu              sync.Mutex
+	metadataCalls   int
+	statusCalls     []string
+	volumeCalls     []int
+	positionCalls   []float64
+	seekedCalls     []int64
+}
+
+func (f *fakeMpris) SetMetadata(track search.Result, lyrics lyrics.Lyrics) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.metadataCalls++
+}
+func (f *fakeMpris) SetPlaybackStatus(status string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.statusCalls = append(f.statusCalls, status)
+}
+func (f *fakeMpris) SetVolume(vol int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.volumeCalls = append(f.volumeCalls, vol)
+}
+func (f *fakeMpris) SetPosition(pos float64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.positionCalls = append(f.positionCalls, pos)
+}
+func (f *fakeMpris) Seeked(offsetUS int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.seekedCalls = append(f.seekedCalls, offsetUS)
+}
+func (f *fakeMpris) Close() {}
 
 func newTestModel(t *testing.T, svc Services) Model {
 	t.Helper()
@@ -715,5 +755,29 @@ func TestSearchEmptyInputRunsNoSearchAndDoesNotReopenModal(t *testing.T) {
 	// El modal no debe reabrirse con los resultados anteriores.
 	if um.mode == modeResults {
 		t.Fatal("búsqueda vacía no debe reabrir el modal de resultados")
+	}
+}
+
+// TestMprisPlayPauseMsg verifica que un mensaje MPRIS PlayPause llega al
+// handler de Update y togglea el estado de pausa del reproductor (W-T5.4).
+func TestMprisPlayPauseMsg(t *testing.T) {
+	fp := newFakePlayer()
+	fm := &fakeMpris{}
+	m := newTestModel(t, Services{Mpris: fm})
+	m.player = fp
+	m.queue.Add(search.Result{ID: "abc", Title: "Song"})
+
+	if fp.paused {
+		t.Fatal("esperaba paused=false inicialmente")
+	}
+
+	updated, _ := m.Update(mpris.PlayPauseMsg{})
+	um := updated.(Model)
+
+	if !fp.paused {
+		t.Fatal("esperaba paused=true tras PlayPauseMsg")
+	}
+	if um.player.Paused() != fp.paused {
+		t.Fatalf("modelo desincronizado: model.paused=%v player.paused=%v", um.player.Paused(), fp.paused)
 	}
 }

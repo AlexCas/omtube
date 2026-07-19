@@ -50,6 +50,8 @@ type Player interface {
 	Stop() error
 	// AddVolume ajusta el volumen en delta (clamp 0–130) y devuelve el nuevo valor.
 	AddVolume(delta int) (int, error)
+	// Seek salta el offset dado en segundos (relativo a la posición actual).
+	Seek(offset float64) error
 	// Position devuelve la posición y duración actuales en segundos.
 	Position() (pos, dur float64)
 	// Paused indica si la reproducción está pausada.

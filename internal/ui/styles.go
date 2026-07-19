@@ -17,16 +17,22 @@ type styles struct {
 func defaultStyles() styles {
 	return styles{
 		title: lipgloss.NewStyle().Bold(true).
-			Foreground(lipgloss.Color("213")).Padding(0, 1),
-		panel: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("60")).
+			Foreground(lipgloss.Color("#e0aaff")).
+			Background(lipgloss.Color("#1a1a2e")).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#e0aaff")).
 			Padding(0, 1),
-		heading:  lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("117")),
-		selected: lipgloss.NewStyle().Foreground(lipgloss.Color("213")).Bold(true),
-		current:  lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true),
-		dim:      lipgloss.NewStyle().Foreground(lipgloss.Color("244")),
-		help:     lipgloss.NewStyle().Foreground(lipgloss.Color("240")),
-		errorMsg: lipgloss.NewStyle().Foreground(lipgloss.Color("203")),
-		viz:      lipgloss.NewStyle().Foreground(lipgloss.Color("213")),
+		panel: lipgloss.NewStyle().
+			Background(lipgloss.Color("#1a1a2e")).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#e0aaff")).
+			Padding(0, 1),
+		heading:  lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e0aaff")),
+		selected: lipgloss.NewStyle().Foreground(lipgloss.Color("#00f5d4")).Bold(true),
+		current:  lipgloss.NewStyle().Foreground(lipgloss.Color("#00f5d4")).Bold(true),
+		dim:      lipgloss.NewStyle().Foreground(lipgloss.Color("#a0a0a0")),
+		help:     lipgloss.NewStyle().Foreground(lipgloss.Color("#a0a0a0")),
+		errorMsg: lipgloss.NewStyle().Foreground(lipgloss.Color("#e0aaff")).Bold(true),
+		viz:      lipgloss.NewStyle().Foreground(lipgloss.Color("#e0aaff")),
 	}
 }

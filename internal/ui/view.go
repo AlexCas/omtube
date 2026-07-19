@@ -39,6 +39,10 @@ func (m Model) View() string {
 	b.WriteString(m.styles.title.Render("🎵 Omusic"))
 	b.WriteString("\n\n")
 
+	// Barra de "ahora suena" en la parte superior (Caelestia layout).
+	b.WriteString(m.renderNowPlaying())
+	b.WriteString("\n\n")
+
 	// Barra de búsqueda/prompt o estado.
 	if m.isInputMode() {
 		b.WriteString(m.input.View())
@@ -47,21 +51,13 @@ func (m Model) View() string {
 	}
 	b.WriteString("\n\n")
 
-	// Panel de cola: visible siempre en la vista principal a tamaño completo.
-	// El panel de resultados se mueve al modal modeResults y ya no se dibuja aquí.
-	b.WriteString(m.renderQueue())
-	b.WriteString("\n")
+	// Sección media: cola + paneles de enriquecimiento (letra/portada) lado a
+	// lado. Los paneles de enriquecimiento solo se dibujan cuando su servicio
+	// está activo; con los toggles apagados la vista es la de la Fase 2.
+	b.WriteString(m.renderMiddleSection())
+	b.WriteString("\n\n")
 
-	// Paneles de enriquecimiento (letra/portada). Solo se dibujan cuando su
-	// servicio está activo: con los toggles apagados la vista es la de la Fase 2.
-	if enrich := m.renderEnrichment(); enrich != "" {
-		b.WriteString(enrich)
-		b.WriteString("\n")
-	}
-
-	// Now playing + progreso.
-	b.WriteString(m.renderNowPlaying())
-	b.WriteString("\n")
+	// Ayuda en la parte inferior, seguida del visualizador de barras.
 	help := m.renderHelp()
 	b.WriteString(help)
 	b.WriteString("\n")
@@ -323,6 +319,17 @@ func (m Model) cacheMark(id string) string {
 		return m.styles.current.Render("⤓ ")
 	}
 	return "  "
+}
+
+// renderMiddleSection compone la cola y los paneles de enriquecimiento en una
+// fila horizontal. Cuando los servicios de enriquecimiento están apagados (nil)
+// solo se muestra la cola, manteniendo paridad con la Fase 2.
+func (m Model) renderMiddleSection() string {
+	queue := m.renderQueue()
+	if enrich := m.renderEnrichment(); enrich != "" {
+		return lipgloss.JoinHorizontal(lipgloss.Top, queue, enrich)
+	}
+	return queue
 }
 
 // renderEnrichment compone los paneles de letra y portada lado a lado. Devuelve

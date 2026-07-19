@@ -52,6 +52,17 @@ type presenceService interface {
 	Clear()
 }
 
+// mprisService expone el estado de reproducción por D-Bus como reproductor
+// MPRIS v2. Un valor nil ⇒ MPRIS desactivado.
+type mprisService interface {
+	SetMetadata(track search.Result, lyrics lyrics.Lyrics)
+	SetPlaybackStatus(status string)
+	SetVolume(vol int)
+	SetPosition(pos float64)
+	Seeked(offsetUS int64)
+	Close()
+}
+
 type mode int
 
 const (
@@ -96,6 +107,7 @@ type Model struct {
 	lyrics   lyricsService
 	artwork  artworkService
 	presence presenceService
+	mpris    mprisService
 
 	keys        keyMap
 	styles      styles
@@ -153,6 +165,7 @@ type Services struct {
 	Lyrics   lyricsService
 	Artwork  artworkService
 	Presence presenceService
+	Mpris    mprisService
 }
 
 // New construye el modelo inicial. svc agrupa los servicios de enriquecimiento;
@@ -203,6 +216,7 @@ func New(cfg config.Config, s search.Searcher, p player.Player, h *history.Histo
 		lyrics:      svc.Lyrics,
 		artwork:     svc.Artwork,
 		presence:    svc.Presence,
+		mpris:       svc.Mpris,
 		logger:      logger,
 		keys:        defaultKeys(),
 		styles:      defaultStyles(),
@@ -246,6 +260,12 @@ type resultItem struct {
 func (i resultItem) Title() string       { return i.mark + i.r.Title }
 func (i resultItem) Description() string { return i.r.Uploader }
 func (i resultItem) FilterValue() string { return i.r.Title }
+
+// SetMpris inyecta el servicio MPRIS tras la creación del programa, cuando ya
+// existe prog.Send. Un valor nil deja la feature desactivada.
+func (m *Model) SetMpris(s mprisService) {
+	m.mpris = s
+}
 
 // Init arranca el bucle de eventos del reproductor y el tick de progreso.
 func (m Model) Init() tea.Cmd {

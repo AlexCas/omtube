@@ -21,6 +21,7 @@ import (
 	"github.com/alexcasdev/terminaltube/internal/logging"
 	"github.com/alexcasdev/terminaltube/internal/lyrics"
 	"github.com/alexcasdev/terminaltube/internal/metadata"
+	"github.com/alexcasdev/terminaltube/internal/mpris"
 	"github.com/alexcasdev/terminaltube/internal/player"
 	"github.com/alexcasdev/terminaltube/internal/playlist"
 	"github.com/alexcasdev/terminaltube/internal/presence"
@@ -86,7 +87,14 @@ func run() error {
 	defer closePresence()
 
 	model := ui.New(cfg, searcher, mpv, hist, playlistSvc, favoritesSvc, svc, logger)
-	prog := tea.NewProgram(model, tea.WithAltScreen())
+	prog := tea.NewProgram(&model, tea.WithAltScreen())
+
+	mprisSvc := mpris.New(func(msg interface{}) { prog.Send(msg) }, logger)
+	model.SetMpris(mprisSvc)
+	if mprisSvc != nil {
+		defer mprisSvc.Close()
+	}
+
 	_, err = prog.Run()
 	return err
 }

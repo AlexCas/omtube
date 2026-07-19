@@ -245,6 +245,12 @@ func (m *MPV) AddVolume(delta int) (int, error) {
 	return v, err
 }
 
+// Seek salta offset segundos de forma relativa a la posición actual.
+func (m *MPV) Seek(offset float64) error {
+	_, err := m.command("seek", offset, "relative")
+	return err
+}
+
 // Position devuelve la posición y duración actuales (0 si no disponibles).
 func (m *MPV) Position() (pos, dur float64) {
 	pos = m.getFloat("time-pos")

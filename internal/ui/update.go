@@ -11,6 +11,7 @@ import (
 
 	"github.com/alexcasdev/terminaltube/internal/lyrics"
 	"github.com/alexcasdev/terminaltube/internal/metadata"
+	"github.com/alexcasdev/terminaltube/internal/mpris"
 	"github.com/alexcasdev/terminaltube/internal/player"
 	"github.com/alexcasdev/terminaltube/internal/search"
 )
@@ -156,6 +157,64 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case playerEventMsg:
 		return m.handlePlayerEvent(msg)
 
+	case mpris.PlayPauseMsg:
+		m.togglePause()
+		return m, nil
+
+	case mpris.NextMsg:
+		if m.queue.Next() {
+			if cur, ok := m.queue.Current(); ok {
+				return m, loadTrackCmd(m.player, m.cache, cur)
+			}
+		}
+		return m, nil
+
+	case mpris.PrevMsg:
+		if m.queue.Prev() {
+			if cur, ok := m.queue.Current(); ok {
+				return m, loadTrackCmd(m.player, m.cache, cur)
+			}
+		}
+		return m, nil
+
+	case mpris.StopMsg:
+		if err := m.player.Stop(); err != nil {
+			m.status = m.styles.errorMsg.Render(err.Error())
+		}
+		if m.mpris != nil {
+			m.mpris.SetPlaybackStatus("Stopped")
+		}
+		return m, nil
+
+	case mpris.SeekMsg:
+		offsetSec := float64(msg.Offset) / 1e6
+		if err := m.player.Seek(offsetSec); err != nil {
+			m.status = m.styles.errorMsg.Render(err.Error())
+		}
+		if m.mpris != nil {
+			newPos := m.pos + offsetSec
+			if newPos < 0 {
+				newPos = 0
+			}
+			if newPos > m.dur {
+				newPos = m.dur
+			}
+			m.mpris.Seeked(int64(newPos * 1e6))
+		}
+		return m, nil
+
+	case mpris.SetVolumeMsg:
+		target := int(msg.Volume * 130)
+		v, err := m.player.AddVolume(target - m.player.Volume())
+		if err != nil {
+			m.status = m.styles.errorMsg.Render(err.Error())
+			return m, nil
+		}
+		if m.mpris != nil {
+			m.mpris.SetVolume(v)
+		}
+		return m, nil
+
 	case tickMsg:
 		// El sondeo de posición corre en su propio Cmd para no bloquear Update.
 		return m, tea.Batch(fetchPositionCmd(m.player), tickCmd())
@@ -171,6 +230,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case posMsg:
 		m.pos, m.dur = msg.pos, msg.dur
 		m.advanceLyric()
+		if m.mpris != nil {
+			m.mpris.SetPosition(m.pos)
+		}
 		return m, nil
 
 	case lyricsMsg:
@@ -179,6 +241,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.curLyrics = msg.lyrics
 			m.lyricLine = -1
 			m.advanceLyric()
+			if m.mpris != nil {
+				if cur, ok := m.queue.Current(); ok {
+					m.mpris.SetMetadata(cur, m.curLyrics)
+				}
+			}
 		}
 		return m, nil
 
@@ -201,6 +268,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// togglePause alterna pausa/reproducción y actualiza el estado MPRIS.
+func (m *Model) togglePause() {
+	if _, ok := m.queue.Current(); !ok {
+		return // nada en reproducción que pausar
+	}
+	if err := m.player.TogglePause(); err != nil {
+		m.status = m.styles.errorMsg.Render(err.Error())
+		return
+	}
+	if m.mpris != nil {
+		if m.player.Paused() {
+			m.mpris.SetPlaybackStatus("Paused")
+		} else {
+			m.mpris.SetPlaybackStatus("Playing")
+		}
+	}
 }
 
 // isPlaying indica si hay una pista activa que no está en pausa. El
@@ -279,12 +364,7 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, m.keys.Toggle):
-		if _, ok := m.queue.Current(); !ok {
-			return m, nil // nada en reproducción que pausar
-		}
-		if err := m.player.TogglePause(); err != nil {
-			m.status = m.styles.errorMsg.Render(err.Error())
-		}
+		m.togglePause()
 		return m, nil
 
 	case key.Matches(msg, m.keys.Next):
@@ -306,11 +386,17 @@ func (m Model) updateNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.VolUp):
 		v, _ := m.player.AddVolume(5)
 		m.status = fmt.Sprintf("Volumen: %d", v)
+		if m.mpris != nil {
+			m.mpris.SetVolume(v)
+		}
 		return m, nil
 
 	case key.Matches(msg, m.keys.VolDown):
 		v, _ := m.player.AddVolume(-5)
 		m.status = fmt.Sprintf("Volumen: %d", v)
+		if m.mpris != nil {
+			m.mpris.SetVolume(v)
+		}
 		return m, nil
 
 	case key.Matches(msg, m.keys.Library):
@@ -394,6 +480,9 @@ func (m Model) clearQueue() (tea.Model, tea.Cmd) {
 	m.queue.Clear()
 	if err := m.player.Stop(); err != nil {
 		m.warn("no se pudo detener la reproducción: " + err.Error())
+	}
+	if m.mpris != nil {
+		m.mpris.SetPlaybackStatus("Stopped")
 	}
 	m.started = false
 	m.curTrackID = ""
@@ -916,6 +1005,9 @@ func (m Model) handlePlayerEvent(msg playerEventMsg) (tea.Model, tea.Cmd) {
 			if m.presence != nil {
 				m.presence.Clear()
 			}
+			if m.mpris != nil {
+				m.mpris.SetPlaybackStatus("Stopped")
+			}
 		}
 	case player.EventTrackChange:
 		cmds = append(cmds, m.onTrackChange(msg.event.Track)...)
@@ -932,6 +1024,11 @@ func (m *Model) onTrackChange(track search.Result) []tea.Cmd {
 	m.curLyrics = lyrics.Lyrics{}
 	m.curArtwork = ""
 	m.lyricLine = -1
+
+	if m.mpris != nil {
+		m.mpris.SetMetadata(track, lyrics.Lyrics{})
+		m.mpris.SetPlaybackStatus("Playing")
+	}
 
 	var cmds []tea.Cmd
 	if c := fetchLyricsCmd(m.lyrics, track); c != nil {
