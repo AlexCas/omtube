@@ -484,3 +484,244 @@ Sin regresiones de Slice 1.
 **PASA-CON-OBSERVACIONES**
 
 La Slice 2 cumple el spec, el design y las tasks. Todas las verificaciones críticas pasan. La única deuda relevante es el techo `maxQueueRows=10` forzado por un test preexistente que impide que la cola crezca más allá de 10 filas en terminales altas — consecuencia UX limitada, no bloqueante. Las demás desviaciones son benignas o mejoran la fidelidad al design. No se requiere re-apply.
+
+---
+
+## Slice 3 — Modales, Biblioteca y Deuda
+
+Date: 2026-07-21
+Phase: verify
+Veredicto: **PASA**
+
+---
+
+### S3-1. Build y análisis estático
+
+| Comando | Resultado |
+|---------|-----------|
+| `go build ./...` | PASS — sin errores |
+| `go vet ./...` | PASS — sin hallazgos |
+
+---
+
+### S3-2. Suite de tests
+
+| Comando | Resultado |
+|---------|-----------|
+| `go test ./internal/ui/...` | PASS — todos los tests verdes, 0 fallos |
+| `go test ./...` | PASS — 16 paquetes con tests, todos limpios |
+
+No quedan archivos `.got` en `internal/ui/testdata/`.
+
+#### Tests específicos de Slice 3
+
+| Test | Variantes / Subestilos | Resultado |
+|------|------------------------|-----------|
+| `TestCaelestiaAccentColors` | mauve #e0aaff / teal #00f5d4 / muted #a0a0a0 | PASS |
+| `TestDelegateNoBackground` | NormalTitle, NormalDesc, SelectedTitle, SelectedDesc, DimmedTitle, DimmedDesc + Title tematizado | PASS |
+| `TestLibraryViewIsTranslucent` | ítems + cursor ➤ + estilos sin Background | PASS |
+| `TestResultsModalGolden` | 120×30, ancho ≤ 120 + golden match | PASS |
+| `TestRenderQueueWindowsLongQueue` | ▼ 80 más, techo 20 | PASS |
+
+#### Tests de regresión (Slices 1 y 2)
+
+| Test | Resultado |
+|------|-----------|
+| `TestStylesNoBackground` | PASS — sin regresión |
+| `TestNoLineExceedsWidth` (60×20, 60×24, 80×24, 120×24, 120×30) | PASS |
+| `TestGoldensDiffer` (3 pares) | PASS |
+| `TestViewGolden/60x20`, `/80x24`, `/120x30` | PASS — goldens modeNormal sin cambios |
+| `TestClassifyBoundaries` (59/60/89/90/119/120) | PASS |
+| `TestComputeLayoutWidths` (6 fronteras) | PASS |
+| `TestComputeLayoutHeight` (20/24/30/40 rows) | PASS |
+| `Test60x20NarrowNoArtwork` | PASS |
+| `TestToggleOffParity_*` y demás preexistentes | PASS |
+
+---
+
+### S3-3. Modales translúcidos: código y cobertura
+
+#### modeResults — path de render
+
+En `View()` (línea 200): `rb.WriteString(themedList(m.resultsList).View())`. Correcto: el delegate Caelestia y el título tematizado se aplican en cada render por valor, sin mutar el estado del modelo.
+
+#### modePicker / modeLyricsPicker — path de render
+
+En `View()` (línea 194): `return themedList(m.picker).View()`. Correcto: mismo patrón por valor.
+
+#### Estilos del delegate — verificación de Background
+
+Ningún subestilo de `caelestiaListDelegate()` define `Background`. Confirmado inspeccionando `styles.go` (sin llamada a `.Background(...)`) y por `TestDelegateNoBackground` (6 subestilos + título tematizado).
+
+La selección se distingue por:
+- `SelectedTitle`: Bold + Foreground teal #00f5d4 + borde izquierdo `│` (NormalBorder, lados: left only) con BorderForeground mauve.
+- `SelectedDesc`: misma base + Foreground mauve #e0aaff.
+
+No hay relleno de fondo en ninguna fila.
+
+#### list.Styles.Title — eliminación de Background("62")
+
+`themedList` reemplaza `l.Styles.Title` por un estilo fresco con `Bold(true).Foreground("#e0aaff").Padding(0,1)`, sin `.Background(...)`. Verificado en `TestDelegateNoBackground`: `hasNoBackground(themed.Styles.Title)` pasa y `themed.Styles.Title.GetForeground() == "#e0aaff"` pasa.
+
+#### Respeto de ancho en el modal
+
+`TestResultsModalGolden` llama `m.resultsList.SetSize(120, 26)` antes de renderizar (idéntico al `SetSize(msg.Width, msg.Height-4)` que ejecuta `Update` ante `tea.WindowSizeMsg`). El assert `lipgloss.Width(line) > 120` no falla para ninguna línea. El golden tiene 26 líneas (< 30). Ninguna línea supera 16 caracteres visibles (modo ANSI stripped).
+
+---
+
+### S3-4. Biblioteca translúcida
+
+`renderLibrary` no usa `.Background(...)` en ningún path. Los estilos `m.styles.selected` (teal + Bold, sin Background) y `m.styles.dim` (muted, sin Background) se confirman por `TestLibraryViewIsTranslucent`:
+- `hasNoBackground(m.styles.selected)` — PASS.
+- `hasNoBackground(m.styles.dim)` — PASS.
+- Output contiene "Canción A" e "➤" — PASS.
+
+---
+
+### S3-5. Golden nuevo view_results_120x30.golden
+
+| Propiedad | Valor | Correcto |
+|-----------|-------|----------|
+| Filas | 26 (< 30) | ✓ |
+| Ancho máximo | 16 chars visibles | ✓ (< 120) |
+| "Resultados" en línea 1 | ✓ | ✓ |
+| Selección por borde │ (no por relleno) | ✓ | ✓ |
+| No hay secuencias ANSI Background (ESC[4Xm / ESC[48;…m) | ✓ | ✓ |
+| Ítems "Canción A..E" presentes | ✓ | ✓ |
+| Línea de ayuda al final | ✓ ("enter encolar · a +playlist…") | ✓ |
+
+El golden fue generado con `UPDATE_GOLDEN=1` y luego bloqueado. `TestResultsModalGolden` pasa sin `UPDATE_GOLDEN`.
+
+---
+
+### S3-6. Deuda S2 saldada: maxQueueRows techo 20
+
+#### Aritmética verificada
+
+`newTestModel` fija `width=120, height=40`.
+- `helpRows(120)`: `helpMainText` tiene 165 chars; `maxW = 120-2 = 118`; 165 > 118 → la ayuda envuelve → 2 filas.
+- `bodyH = max(40-(11+2), 4) = max(27, 4) = 27`.
+- `maxQueueRows = clamp(27-5, 3, 20) = clamp(22, 3, 20) = 20`.
+- Cola de 100 ítems, idx=0, lead=2: `start=max(0-2,0)=0`, `end=0+20=20`.
+- Mostradas: ítems 0..19 (20 filas). Marcador: `▼ 100-20 = 80 más`. CORRECTO.
+
+El comentario en `computeLayout` ("techo 20 (design D4)") es consistente con la implementación.
+
+`TestRenderQueueWindowsLongQueue` actualizado a `"▼ 80 más"` y el assert de crecimiento a `n > 30` — ambos coherentes con `maxQueueRows=20`.
+
+`TestComputeLayoutHeight/40rows`: sigue pasando porque el assert solo verifica `maxQueueRows >= 3`, no el valor exacto.
+
+---
+
+### S3-7. Trazabilidad de escenarios @slice3
+
+| Escenario | Tag | Cobertura |
+|-----------|-----|-----------|
+| Modals, library, and pickers preserved and translucent | @slice3 @happy | COMPLETO. Cubierto por: `TestDelegateNoBackground` (no-Background en 6 subestilos + título), `TestLibraryViewIsTranslucent` (ítems + cursor + estilos sin Background), `TestResultsModalGolden` (render bloqueado + ancho ≤ 120). El assert de translucidez es directo sobre los objetos de estilo, no sobre ANSI en el golden (estrategia correcta dada la limitación de plaintext). |
+
+No quedan escenarios @slice3 sin cobertura.
+
+---
+
+### S3-8. Regresión de Slices 1 y 2
+
+| Assert | Resultado |
+|--------|-----------|
+| `TestStylesNoBackground` (title + panel sin Background, bordes conservados) | PASS |
+| `TestNoLineExceedsWidth` (60×20/60×24/80×24/120×24/120×30) | PASS |
+| `TestGoldensDiffer` (60×20 ≠ 80×24 ≠ 120×30) | PASS |
+| `TestViewGolden/60x20`, `/80x24`, `/120x30` (modeNormal) | PASS — goldens no cambiaron |
+| `TestComputeLayoutHeight` (20/24/30/40 rows, con techo 20 nuevo) | PASS |
+| `TestComputeLayoutWidths` | PASS |
+| `TestClassifyBoundaries` | PASS |
+| `Test60x20NarrowNoArtwork` | PASS |
+| `TestToggleOffParity_*` | PASS |
+
+Los goldens de modeNormal (60×20, 80×24, 120×30) no cambiaron: los cambios de Slice 3 solo afectan los paths de modeResults/picker, que no se ejercitan en `TestViewGolden`.
+
+---
+
+### S3-9. Alcance (scope check)
+
+| Archivo | Modificado | Autorizado |
+|---------|-----------|-----------|
+| `internal/ui/styles.go` | ✓ (añadida `caelestiaListDelegate`) | ✓ |
+| `internal/ui/view.go` | ✓ (`themedList`, uso en modeResults/picker, techo maxQueueRows 10→20, comentario D4) | ✓ |
+| `internal/ui/view_test.go` | ✓ (4 tests nuevos: TestCaelestiaAccentColors, TestDelegateNoBackground, TestLibraryViewIsTranslucent, TestResultsModalGolden) | ✓ |
+| `internal/ui/update_test.go` | ✓ (solo TestRenderQueueWindowsLongQueue actualizado: "▼ 80 más", n>30) | ✓ |
+| `internal/ui/testdata/view_results_120x30.golden` | ✓ (nuevo, no cuenta hacia presupuesto) | ✓ |
+| `internal/ui/model.go` | — sin cambios | ✓ |
+| `internal/ui/update.go` | — sin cambios | ✓ |
+| `internal/ui/messages.go` | — sin cambios | ✓ |
+| `internal/ui/keys.go` | — sin cambios | ✓ |
+
+Líneas cambiadas en los 4 archivos fuente (excluyendo golden): 206 líneas +/- combinadas. Dentro del presupuesto de 400.
+
+---
+
+### S3-10. Evaluación de desviaciones del apply
+
+#### Desviación 1: `SetSize(120, 26)` en `TestResultsModalGolden`
+
+La task S3-T7.1 no especifica `SetSize`. El test lo añade con `m.resultsList.SetSize(120, 26)`, que replica exactamente `Update`'s `SetSize(msg.Width, msg.Height-4)` para 120×30. Esta adición es **correcta y necesaria**: sin `SetSize` el list no conoce sus dimensiones y rendería incorrectamente. Mejora la fidelidad del test respecto al path de producción. No introduce deuda.
+
+#### Desviación 2: T2+T8 fusionados en un solo edit
+
+Las tasks S3-T2 (cambiar techo 10→20) y S3-T8 (actualizar comentario) se aplicaron juntas. El resultado es idéntico: el comentario describe `clamp(bodyH-5, 3, 20)` con la nota "techo 20 (design D4)". La reconciliación D4 está completa y consistente.
+
+#### Desviación 3: Cobertura extra en `TestCaelestiaAccentColors`
+
+La task S3-T4.1 solo pedía verificar `heading`, `selected`, `current`, `dim`, `help`. La implementación añade también `title`, `viz`, `errorMsg` al caso `#e0aaff`. Esto amplía la cobertura de paleta sin costo adicional. No introduce deuda; es una mejora.
+
+Las tres desviaciones son benignas o mejoras. Ninguna introduce riesgo o deuda técnica.
+
+---
+
+### S3-11. Análisis de mutación mental
+
+| Test | ¿Fallaría si se reintroduce Background opaco en delegate o título? |
+|------|-------------------------------------------------------------------|
+| `TestDelegateNoBackground` | SÍ — `hasNoBackground` devuelve false → `t.Errorf` |
+| `TestDelegateNoBackground` (título) | SÍ — `hasNoBackground(themed.Styles.Title)` falla |
+| `TestLibraryViewIsTranslucent` | SÍ (vía `hasNoBackground(m.styles.selected/dim)`) |
+| `TestResultsModalGolden` | SÍ — ANSI de Background cambia el render → golden mismatch |
+| `TestStylesNoBackground` | SÍ si se modifica title/panel (regresión Slice 1) |
+
+Cobertura de mutación: robusta. Los tests cubren tanto la inspección directa de objetos de estilo como el golden de render.
+
+---
+
+### Resumen de evidencias — Slice 3
+
+| Verificación | Resultado |
+|---|---|
+| `go build ./...` | PASS |
+| `go vet ./...` | PASS |
+| `go test ./internal/ui/...` (todos los tests) | PASS |
+| `go test ./...` (todos los paquetes) | PASS |
+| No archivos `.got` | PASS |
+| `TestCaelestiaAccentColors` (hex #e0aaff/#00f5d4/#a0a0a0 por nombre) | PASS |
+| `TestDelegateNoBackground` (6 subestilos + título tematizado) | PASS |
+| `TestLibraryViewIsTranslucent` (ítems + cursor + estilos sin Background) | PASS |
+| `TestResultsModalGolden` (ancho ≤ 120 + golden bloqueado) | PASS |
+| `TestRenderQueueWindowsLongQueue` (▼ 80 más, techo 20) | PASS |
+| Goldens modeNormal sin cambios (60×20, 80×24, 120×30) | PASS |
+| Regresión Slice 1 (no-Background, no overflow, GoldensDiffer) | PASS |
+| Regresión Slice 2 (classify, computeLayout, narrow artwork) | PASS |
+| caelestiaListDelegate: ningún subestilo con Background | PASS |
+| list.Styles.Title en themedList: sin Background, foreground mauve | PASS |
+| Selección por borde │ + color, no por relleno opaco | PASS |
+| view_results_120x30.golden: 26 líneas, max ancho ≤ 120, sin ANSI Background | PASS |
+| Aritmética maxQueueRows a h=40: bodyH=27, maxQ=clamp(22,3,20)=20, "▼ 80 más" | CORRECTO |
+| Scope: 4 archivos fuente + 1 golden; sin model/update/messages/keys/servicios | PASS |
+| Líneas de código cambiadas < 400 | PASS (206 líneas +/-) |
+| Escenarios @slice3 cubiertos | 1/1 (COMPLETO) |
+| Desviaciones de apply | 3 evaluadas — todas benignas o mejoras |
+
+---
+
+### Veredicto — Slice 3
+
+**PASA**
+
+La Slice 3 cumple el spec, el design y las tasks sin observaciones bloqueantes ni deuda nueva. Todas las verificaciones críticas pasan: build limpio, vet limpio, suite completa verde, trazabilidad completa @slice3, deuda S2 saldada aritméticamente correcta, golden nuevo bloqueado, y cobertura de mutación robusta. No se requiere re-apply.

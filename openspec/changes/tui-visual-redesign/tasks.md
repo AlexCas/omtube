@@ -493,3 +493,526 @@ cruzado con la estimación actual.
 - [ ] Solo 5 archivos modificados (view.go, view_test.go, 3 goldens); sin Model/Update/keys/messages
 - [ ] Ningún código de Slice 3 introducido
 - [ ] Líneas de código cambiadas < 400
+
+---
+
+## Slice 3 — Modales, Biblioteca y Deuda
+
+Scope: presentacional; solo se tocan `internal/ui/styles.go`, `internal/ui/view.go`,
+`internal/ui/view_test.go`, `internal/ui/update_test.go` (único ajuste de deuda en
+`TestRenderQueueWindowsLongQueue`) y `internal/ui/testdata/*.golden` (regeneración
+y/o golden nuevo del modal de resultados). No se toca `model.go`, `update.go`,
+`messages.go`, `keys.go` ni ningún servicio.
+
+Estimación de líneas de código (sin goldens): ~180–250 (dentro del presupuesto de 400).
+
+Contexto de implementación relevante:
+- `picker` y `resultsList` son `list.Model` de `github.com/charmbracelet/bubbles v1.0.0`.
+  Ambos usan `list.NewDefaultDelegate()` sin customización. El delegate expone
+  `d.Styles` (`DefaultItemStyles`) con campos `NormalTitle`, `NormalDesc`,
+  `SelectedTitle`, `SelectedDesc`, `DimmedTitle`, `DimmedDesc`. Ninguno define
+  `Background` en los items, pero la barra de título del list (`list.Styles.Title`)
+  sí aplica `Background(lipgloss.Color("62"))` vía `DefaultStyles()`.
+- `modeResults` renderiza `m.resultsList.View()` directamente sin panel wrapper.
+- `modePicker`/`modeLyricsPicker` renderizan `m.picker.View()` directamente.
+- `renderLibrary` usa `renderLibList` con estilos `selected` y `dim` del modelo;
+  la selección ya distingue por color/negrita/prefijo ➤, sin fondo opaco.
+- El test `TestRenderQueueWindowsLongQueue` (update_test.go línea 525) crea el
+  modelo con `newTestModel` (width=120, height=40) y llama `m.renderQueue()`.
+  A height=40 con el techo actual de 10, `maxQueueRows=10` → "▼ 90 más". Con
+  el techo subido a 20 y height=40: `bodyH = max(40-(11+1), 4) = 28`,
+  `maxQueueRows = clamp(28-5, 3, 20) = 20` → window=20, "▼ 80 más". El test
+  deberá reflejar este nuevo comportamiento.
+
+Las tareas DEBEN ejecutarse en orden numérico. Dependencias indicadas en cada una.
+
+---
+
+### S3-T1 — Aplicar estilos Caelestia al delegate de los modales (modeResults y picker)
+
+**Archivos**: `internal/ui/styles.go`, `internal/ui/view.go`
+**Depende de**: nada (primer cambio de Slice 3)
+**Mapeo de escenario**: "Modals, library, and pickers preserved and translucent" (@slice3 @happy)
+
+El objetivo es sustituir `list.NewDefaultDelegate()` por un delegate customizado
+con estilos Caelestia: foreground/negrita para la selección (mauve o teal), color
+muted para estado normal, sin ningún `Background` en ninguna fila. Además, el
+`list.Styles.Title` (barra "Resultados") debe perder el `Background("62")` heredado
+de `DefaultStyles()`.
+
+- [ ] S3-T1.1 — En `styles.go`, añadir una función `caelestiaListDelegate()` que
+      construya y devuelva un `list.DefaultDelegate` con estilos Caelestia:
+      ```go
+      func caelestiaListDelegate() list.DefaultDelegate {
+          d := list.NewDefaultDelegate()
+          d.Styles.NormalTitle = lipgloss.NewStyle().
+              Foreground(lipgloss.Color("#a0a0a0")).Padding(0, 0, 0, 2)
+          d.Styles.NormalDesc = d.Styles.NormalTitle.
+              Foreground(lipgloss.Color("#a0a0a0"))
+          d.Styles.SelectedTitle = lipgloss.NewStyle().
+              Bold(true).
+              Foreground(lipgloss.Color("#00f5d4")).
+              Border(lipgloss.NormalBorder(), false, false, false, true).
+              BorderForeground(lipgloss.Color("#e0aaff")).
+              Padding(0, 0, 0, 1)
+          d.Styles.SelectedDesc = d.Styles.SelectedTitle.
+              Foreground(lipgloss.Color("#e0aaff"))
+          d.Styles.DimmedTitle = d.Styles.NormalTitle
+          d.Styles.DimmedDesc = d.Styles.NormalDesc
+          return d
+      }
+      ```
+      Importante: ninguno de estos estilos puede definir `Background`. El borde
+      izquierdo de selección se logra con `Border(NormalBorder(), false,false,false,true)`,
+      que añade un `│` lateral sin fondo de fila. Revisar que `GetBackground()` de
+      cada subestilo sea `NoColor{}` o `Color("")` antes de confirmar.
+
+- [ ] S3-T1.2 — En `model.go` NO se toca (regla de scope). En su lugar, añadir a
+      `view.go` una función `themedResultsList(m Model) list.Model` que tome
+      `m.resultsList`, le asigne el delegate de S3-T1.1 y sobreescriba el estilo
+      de la barra de título del list para eliminar el `Background`:
+      ```go
+      func themedList(l list.Model) list.Model {
+          l.SetDelegate(caelestiaListDelegate())
+          s := l.Styles
+          s.Title = lipgloss.NewStyle().
+              Bold(true).
+              Foreground(lipgloss.Color("#e0aaff")).
+              Padding(0, 1)
+          l.Styles = s
+          return l
+      }
+      ```
+      Esta función actúa sobre una copia del `list.Model` (valor, no puntero) y
+      devuelve la copia tematizada. No muta el estado del modelo.
+
+- [ ] S3-T1.3 — En `view.go`, en el bloque `modeResults`, reemplazar:
+      ```go
+      rb.WriteString(m.resultsList.View())
+      ```
+      por:
+      ```go
+      rb.WriteString(themedList(m.resultsList).View())
+      ```
+
+- [ ] S3-T1.4 — En `view.go`, en el bloque `modePicker || modeLyricsPicker`,
+      reemplazar:
+      ```go
+      return m.picker.View()
+      ```
+      por:
+      ```go
+      return themedList(m.picker).View()
+      ```
+
+- [ ] S3-T1.5 — Verificar `go build ./...` — debe pasar sin errores.
+- [ ] S3-T1.6 — Verificar `go vet ./...` — sin hallazgos.
+
+Estimación de líneas añadidas/modificadas: ~40–55 (styles.go ~25 add, view.go ~15 mod).
+
+---
+
+### S3-T2 — Deuda: subir techo maxQueueRows de 10 a 20 en computeLayout
+
+**Archivo**: `internal/ui/view.go`
+**Depende de**: S3-T1 (compilación verde)
+**Mapeo**: deuda documentada en verify-report.md S2-11 Desviación 1 / Obs-S2-3;
+  reconcilia design.md D4 ("clamp(bodyH-2, 3, 20)") con lo implementado.
+
+- [ ] S3-T2.1 — En `computeLayout`, localizar la línea:
+      ```go
+      maxQueueRows := clamp(bodyH-5, 3, 10)
+      ```
+      Cambiarla a:
+      ```go
+      maxQueueRows := clamp(bodyH-5, 3, 20)
+      ```
+      Solo se cambia el techo (10 → 20). El offset `-5` refleja el overhead real
+      del panel (borde×2 + encabezado + marcadores ▲/▼) y se mantiene sin cambios
+      (es más preciso que el `-2` del spec). El techo 20 es el valor del design D4.
+
+- [ ] S3-T2.2 — Verificar `go build ./...` — debe pasar.
+- [ ] S3-T2.3 — Ejecutar `go test ./internal/ui/... -run TestComputeLayoutHeight`
+      y confirmar que el test sigue pasando. A height=30: `bodyH=17`,
+      `maxQueueRows = clamp(12, 3, 20) = 12 ≥ 8` — PASS.
+      A height=40: `bodyH=28`, `maxQueueRows = clamp(23, 3, 20) = 20` — satisface
+      el assert "a 30 filas la cola debe expandirse: maxQueueRows ≥ 8".
+      A height=20: `bodyH=7`, `maxQueueRows = clamp(2, 3, 20) = 3 < 10` — PASS.
+
+Estimación de líneas modificadas: 1 línea.
+
+---
+
+### S3-T3 — Actualizar TestRenderQueueWindowsLongQueue para el nuevo techo de cola
+
+**Archivo**: `internal/ui/update_test.go`
+**Depende de**: S3-T2 (techo de cola subido a 20; el test falla con el valor anterior)
+**Mapeo**: deuda documentada en verify-report.md Obs-S2-3; escenario "Queue and
+  lyrics behaviors preserved" (@slice2 @happy) preservado con el nuevo comportamiento.
+
+El test usa `newTestModel` (width=120, height=40). Con el techo 20:
+`bodyH = max(40-(11+1), 4) = 28`, `maxQueueRows = clamp(23, 3, 20) = 20`.
+La cola de 100 ítems mostrará 20 filas → "▼ 80 más" en lugar de "▼ 90 más".
+El assert "Track 050 fuera de ventana" se mantiene (50 > 20, correcto).
+El assert de crecimiento controlado debe subir de 20 a 30 líneas (20 filas + heading +
+marcador ▼ + borde = ~23 líneas; con margen → 30).
+
+- [ ] S3-T3.1 — En `update_test.go`, localizar `TestRenderQueueWindowsLongQueue`
+      (línea ~525). Reemplazar el comentario y el assert de "▼ 90 más":
+      ```go
+      // Desde el inicio (idx 0): se muestran 10 y el resto se indica con el marcador.
+      if !strings.Contains(out, "▼ 90 más") {
+          t.Fatalf("esperaba marcador '▼ 90 más'; got:\n%s", out)
+      }
+      ```
+      por:
+      ```go
+      // Desde el inicio (idx 0): con height=40 maxQueueRows=20 se muestran 20
+      // filas y el resto se indica con el marcador de desbordamiento.
+      if !strings.Contains(out, "▼ 80 más") {
+          t.Fatalf("esperaba marcador '▼ 80 más'; got:\n%s", out)
+      }
+      ```
+
+- [ ] S3-T3.2 — Actualizar el assert de crecimiento controlado en el mismo test.
+      Reemplazar:
+      ```go
+      if n := strings.Count(out, "\n"); n > 20 {
+          t.Fatalf("el panel de cola creció demasiado: %d líneas", n)
+      }
+      ```
+      por:
+      ```go
+      if n := strings.Count(out, "\n"); n > 30 {
+          t.Fatalf("el panel de cola creció demasiado: %d líneas", n)
+      }
+      ```
+
+- [ ] S3-T3.3 — Ejecutar `go test ./internal/ui/... -run TestRenderQueueWindowsLongQueue`
+      — debe pasar.
+
+Estimación de líneas modificadas: ~8 líneas.
+
+---
+
+### S3-T4 — Test de paleta hexadecimal de acentos (Obs-1)
+
+**Archivo**: `internal/ui/view_test.go`
+**Depende de**: S3-T1 (estilos Caelestia en delegate ya definidos; build verde)
+**Mapeo de escenario**: "All colors match Caelestia palette" (@slice1 @happy);
+  cierra la brecha Obs-1 del verify-report.md de Slice 1.
+
+- [ ] S3-T4.1 — Añadir `TestCaelestiaAccentColors(t *testing.T)` en `view_test.go`:
+      ```go
+      func TestCaelestiaAccentColors(t *testing.T) {
+          s := defaultStyles()
+          cases := []struct {
+              name  string
+              color lipgloss.Color
+          }{
+              {"accent mauve (heading/border/viz/errorMsg/selected-border)", "#e0aaff"},
+              {"highlight teal (selected/current)", "#00f5d4"},
+              {"muted (dim/help)", "#a0a0a0"},
+          }
+          for _, tc := range cases {
+              tc := tc
+              t.Run(tc.name, func(t *testing.T) {
+                  switch tc.color {
+                  case "#e0aaff":
+                      if s.heading.GetForeground() != lipgloss.Color("#e0aaff") {
+                          t.Errorf("heading foreground no es mauve: %v", s.heading.GetForeground())
+                      }
+                  case "#00f5d4":
+                      if s.selected.GetForeground() != lipgloss.Color("#00f5d4") {
+                          t.Errorf("selected foreground no es teal: %v", s.selected.GetForeground())
+                      }
+                      if s.current.GetForeground() != lipgloss.Color("#00f5d4") {
+                          t.Errorf("current foreground no es teal: %v", s.current.GetForeground())
+                      }
+                  case "#a0a0a0":
+                      if s.dim.GetForeground() != lipgloss.Color("#a0a0a0") {
+                          t.Errorf("dim foreground no es muted: %v", s.dim.GetForeground())
+                      }
+                      if s.help.GetForeground() != lipgloss.Color("#a0a0a0") {
+                          t.Errorf("help foreground no es muted: %v", s.help.GetForeground())
+                      }
+                  }
+              })
+          }
+      }
+      ```
+      El test afirma los 3 colores hexadecimales por nombre sobre los estilos de
+      `defaultStyles()` — cobertura directa e independiente de goldens.
+
+- [ ] S3-T4.2 — Ejecutar `go test ./internal/ui/... -run TestCaelestiaAccentColors`
+      — debe pasar.
+
+Estimación de líneas añadidas: ~40–50.
+
+---
+
+### S3-T5 — Extender assert no-Background a los estilos del delegate modal
+
+**Archivo**: `internal/ui/view_test.go`
+**Depende de**: S3-T1 (delegate ya existe), S3-T4 (build verde con nuevos tests)
+**Mapeo de escenario**: "Modals, library, and pickers preserved and translucent"
+  (@slice3 @happy); extiende la Decision 2 del design al scope de modales.
+
+- [ ] S3-T5.1 — Añadir `TestDelegateNoBackground(t *testing.T)` en `view_test.go`:
+      ```go
+      func TestDelegateNoBackground(t *testing.T) {
+          d := caelestiaListDelegate()
+          checks := []struct {
+              name  string
+              style lipgloss.Style
+          }{
+              {"NormalTitle", d.Styles.NormalTitle},
+              {"NormalDesc", d.Styles.NormalDesc},
+              {"SelectedTitle", d.Styles.SelectedTitle},
+              {"SelectedDesc", d.Styles.SelectedDesc},
+              {"DimmedTitle", d.Styles.DimmedTitle},
+              {"DimmedDesc", d.Styles.DimmedDesc},
+          }
+          for _, c := range checks {
+              c := c
+              t.Run(c.name, func(t *testing.T) {
+                  if !hasNoBackground(c.style) {
+                      t.Errorf("delegate.%s no debe definir Background; got %#v",
+                          c.name, c.style.GetBackground())
+                  }
+              })
+          }
+      }
+      ```
+      Reutiliza el helper `hasNoBackground` definido en Slice 1.
+
+- [ ] S3-T5.2 — Ejecutar `go test ./internal/ui/... -run TestDelegateNoBackground`
+      — debe pasar.
+
+Estimación de líneas añadidas: ~30.
+
+---
+
+### S3-T6 — Verificar paridad: renderLibrary ya es translúcida
+
+**Archivo**: `internal/ui/view_test.go`
+**Depende de**: S3-T5 (suite verde)
+**Mapeo de escenario**: "Modals, library, and pickers preserved and translucent"
+  (@slice3 @happy), rama library.
+
+La inspección del código muestra que `renderLibrary` usa `m.styles.selected`
+(teal foreground + bold, sin Background) y `m.styles.dim` (muted foreground, sin
+Background). La selección se distingue por prefijo ➤ y color — no por relleno.
+No se requiere cambio de código; solo una verificación de test.
+
+- [ ] S3-T6.1 — Añadir `TestLibraryViewIsTranslucent(t *testing.T)` en `view_test.go`:
+      construir un modelo con `modeLibrary`, `libSection = sectionFavorites` y al
+      menos 2 tracks en `libFavorites`; llamar `m.View()`; afirmar que el output
+      contiene los títulos de las pistas y que el cursor ➤ está presente. (No es
+      posible afirmar ausencia de Background en ANSI con goldens en plaintext, pero
+      se puede afirmar que el markup de selección no incluye relleno de fondo
+      inspeccionando el estilo directamente con `hasNoBackground(m.styles.selected)`
+      y `hasNoBackground(m.styles.dim)`.)
+      ```go
+      func TestLibraryViewIsTranslucent(t *testing.T) {
+          m := newTestModel(t, Services{})
+          m.mode = modeLibrary
+          m.libSection = sectionFavorites
+          m.libFavorites = []search.Result{
+              {ID: "a", Title: "Canción A", Uploader: "Artista A"},
+              {ID: "b", Title: "Canción B", Uploader: "Artista B"},
+          }
+          m.libCursor = 0
+          out := m.View()
+          if !strings.Contains(out, "Canción A") {
+              t.Errorf("biblioteca debe mostrar los ítems; got:\n%s", out)
+          }
+          if !strings.Contains(out, "➤") {
+              t.Errorf("biblioteca debe mostrar el cursor ➤; got:\n%s", out)
+          }
+          // Verificar que los estilos de selección no tienen Background.
+          if !hasNoBackground(m.styles.selected) {
+              t.Errorf("styles.selected no debe definir Background")
+          }
+          if !hasNoBackground(m.styles.dim) {
+              t.Errorf("styles.dim no debe definir Background")
+          }
+      }
+      ```
+
+- [ ] S3-T6.2 — Ejecutar `go test ./internal/ui/... -run TestLibraryViewIsTranslucent`
+      — debe pasar.
+
+Estimación de líneas añadidas: ~25–30.
+
+---
+
+### S3-T7 — Regenerar goldens afectados y añadir golden del modal de resultados
+
+**Archivos**: `internal/ui/testdata/*.golden` (regen o nuevo),
+  `internal/ui/view_test.go` (añadir caso de golden modal)
+**Depende de**: S3-T6 (suite no-golden completamente verde)
+**Mapeo de escenario**: "Modals, library, and pickers preserved and translucent"
+  (@slice3 @happy); "Golden Determinism" (@slice1 @slice2).
+
+Los cambios de S3-T1 (delegate + título del list) alteran el output de
+`m.resultsList.View()`. Aunque los goldens existentes (60×20, 80×24, 120×30)
+no cubren `modeResults` (usan `modeNormal`), es necesario crear un golden del
+modal para bloquearlo y detectar regresiones futuras.
+
+- [ ] S3-T7.1 — En `view_test.go`, añadir el caso `{"results_120x30", modeResults, 120, 30}`
+      a una nueva función `TestResultsModalGolden` que construya un modelo en
+      `modeResults`, popule `m.resultsList` con 5 ítems representativos y llame
+      `m.View()`. Usar `compareGolden` al archivo
+      `testdata/view_results_120x30.golden`.
+      ```go
+      func TestResultsModalGolden(t *testing.T) {
+          m := newTestModel(t, Services{})
+          m.mode = modeResults
+          m.width, m.height = 120, 30
+          items := []list.Item{
+              resultItem{r: search.Result{ID: "a", Title: "Canción A", Uploader: "Artista A"}},
+              resultItem{r: search.Result{ID: "b", Title: "Canción B", Uploader: "Artista B"}},
+              resultItem{r: search.Result{ID: "c", Title: "Canción C", Uploader: "Artista C"}},
+              resultItem{r: search.Result{ID: "d", Title: "Canción D", Uploader: "Artista D"}},
+              resultItem{r: search.Result{ID: "e", Title: "Canción E", Uploader: "Artista E"}},
+          }
+          m.resultsList.SetItems(items)
+          m.resultsList = themedList(m.resultsList)
+          out := m.View()
+          compareGolden(t, filepath.Join("testdata", "view_results_120x30.golden"), out)
+      }
+      ```
+      Nota: `themedList` se llama explícitamente aquí para que el test ejerza el
+      mismo path que `View()` en modeResults.
+
+- [ ] S3-T7.2 — Verificar si los goldens existentes (60×20, 80×24, 120×30) son
+      afectados por los cambios de S3-T1. Estos goldens usan `modeNormal`, que no
+      pasa por `themedList`. Si `computeLayout` y los render helpers de la vista
+      principal no cambiaron, los goldens no deben cambiar. Confirmar ejecutando:
+      `go test ./internal/ui/... -run TestViewGolden` — si falla, regenerar.
+
+- [ ] S3-T7.3 — Crear el golden del modal ejecutando:
+      `UPDATE_GOLDEN=1 go test ./internal/ui/... -run TestResultsModalGolden`
+
+- [ ] S3-T7.4 — Inspeccionar `view_results_120x30.golden`:
+      - Confirmar que contiene "Resultados" (título del modal).
+      - Confirmar que contiene "Canción A", "Artista A" (ítems).
+      - Confirmar que contiene la línea de ayuda del modal
+        ("enter encolar · a +playlist · f favorito · ↑/↓ navegar · esc cerrar").
+      - Confirmar que ninguna línea excede 120 columnas.
+
+- [ ] S3-T7.5 — Ejecutar `go test ./internal/ui/...` (suite completa, sin UPDATE_GOLDEN)
+      — todos los tests deben pasar.
+- [ ] S3-T7.6 — Ejecutar `go build ./...` — debe pasar limpio.
+
+Estimación: golden es fixture no contado hacia presupuesto; ~30 líneas en view_test.go.
+
+---
+
+### S3-T8 — Reconciliar design.md D4 con la implementación real
+
+**Archivo**: `internal/ui/view.go` (comentario en `computeLayout`)
+**Depende de**: S3-T2 (techo ya subido a 20)
+**Mapeo**: nota de reconciliación del alcance de Slice 3.
+
+El `design.md` D4 dice `maxQueueRows = clamp(bodyH-2 (heading+borders), 3, 20)`.
+La implementación usa `clamp(bodyH-5, 3, 20)` (con -5 para descontar heading,
+borde×2 y marcadores ▲/▼). El techo ya es 20. Solo es necesario actualizar el
+comentario del código para que sea consistente con lo implementado.
+
+- [ ] S3-T8.1 — En `computeLayout`, localizar el comentario sobre `maxQueueRows`:
+      ```go
+      // Filas de la cola: bodyH menos el chrome real del panel (2 de borde,
+      // 1 de encabezado y hasta 2 marcadores ▲/▼), con piso 3 para no colapsar
+      // en alturas chicas. El techo queda en 10 (la ventana histórica): la letra
+      // es la región que crece primero con el alto.
+      maxQueueRows := clamp(bodyH-5, 3, 10)
+      ```
+      Actualizar el comentario (el código ya fue cambiado en S3-T2):
+      ```go
+      // Filas de la cola: bodyH menos el chrome real del panel (2 de borde,
+      // 1 de encabezado y hasta 2 marcadores ▲/▼ = 5 filas de overhead), con
+      // piso 3 para no colapsar en alturas chicas y techo 20 (design D4).
+      maxQueueRows := clamp(bodyH-5, 3, 20)
+      ```
+
+Estimación de líneas modificadas: ~4 (solo comentario + la línea de código cambiada en S3-T2).
+
+---
+
+### S3-T9 — Verificación final de la Slice 3
+
+**Depende de**: S3-T8 (todos los cambios de Slice 3 aplicados)
+
+- [ ] S3-T9.1 — Ejecutar `go build ./...` — debe pasar limpio.
+- [ ] S3-T9.2 — Ejecutar `go vet ./...` — sin hallazgos.
+- [ ] S3-T9.3 — Ejecutar `go test ./internal/ui/...` — todos los tests pasan,
+      incluyendo:
+      - `TestCaelestiaAccentColors` — PASS (cierra Obs-1).
+      - `TestDelegateNoBackground` (todos los subestilos) — PASS.
+      - `TestLibraryViewIsTranslucent` — PASS.
+      - `TestResultsModalGolden` — PASS.
+      - `TestRenderQueueWindowsLongQueue` (▼ 80 más) — PASS (deuda cerrada).
+      - `TestComputeLayoutHeight` (todos los casos) — PASS.
+      - `TestStylesNoBackground` — PASS (sin regresión Slice 1).
+      - `TestGoldensDiffer` (3 pares) — PASS.
+      - `TestViewGolden/60x20`, `/80x24`, `/120x30` — PASS.
+      - `TestNoLineExceedsWidth` (todos los tamaños) — PASS.
+      - `TestToggleOffParity_*` — PASS.
+- [ ] S3-T9.4 — Ejecutar `go test ./...` — 17 paquetes, todos limpios.
+- [ ] S3-T9.5 — Confirmar scope: solo se tocaron los archivos autorizados:
+      `styles.go`, `view.go`, `view_test.go`, `update_test.go`,
+      `testdata/view_results_120x30.golden` (y, si regresaron, los 3 goldens
+      existentes). No se tocó `model.go`, `update.go`, `messages.go`, `keys.go`
+      ni ningún servicio.
+- [ ] S3-T9.6 — Contar líneas cambiadas (excluyendo goldens): confirmar < 400.
+      Estimación: ~175–230 líneas. Si se supera 400, identificar el bloque más
+      grande (probablemente S3-T4/S3-T5/S3-T6 en view_test.go) y dividirlo en
+      una sub-slice.
+
+---
+
+### Tabla resumen de Slice 3
+
+| Tarea | Archivos | Est. líneas | Escenario / Deuda |
+|-------|----------|-------------|-------------------|
+| S3-T1 Delegate Caelestia para modales | `styles.go`, `view.go` | ~50–55 add/mod | @slice3 "Modals… translucent" |
+| S3-T2 Subir techo maxQueueRows 10→20 | `view.go` | ~1 mod | Deuda S2 / Design D4 |
+| S3-T3 Actualizar TestRenderQueueWindowsLongQueue | `update_test.go` | ~8 mod | Deuda S2 / @slice2 queue preserved |
+| S3-T4 Test paleta hexadecimal (Obs-1) | `view_test.go` | ~45–50 add | @slice1 "All colors match palette" |
+| S3-T5 Extender no-Background a delegate | `view_test.go` | ~30 add | @slice3 "no delegate row opaque bg" |
+| S3-T6 Verificar library translúcida | `view_test.go` | ~28 add | @slice3 "library translucent" |
+| S3-T7 Golden modal resultados | `view_test.go` + `testdata/*.golden` | ~30 add + regen | @slice3 Golden del modal |
+| S3-T8 Reconciliar comentario D4 | `view.go` | ~4 mod | Reconciliación design.md D4 |
+| S3-T9 Verificación final | — | — | Checklist de cierre |
+
+**Total líneas de código (styles + view + view_test + update_test)**: ~180–250
+cambiadas/añadidas (< 400). Los golden files son fixture, no cuentan.
+
+---
+
+### Verification checklist de Slice 3 (para sign-off de apply)
+
+- [ ] `go build ./...` — green
+- [ ] `go vet ./...` — sin hallazgos
+- [ ] `go test ./internal/ui/...` — todos los tests pasan
+- [ ] `go test ./...` — 17 paquetes limpios
+- [ ] `TestCaelestiaAccentColors` — PASS (hex #e0aaff, #00f5d4, #a0a0a0 por nombre)
+- [ ] `TestDelegateNoBackground` (6 subestilos) — PASS (ningún Background en delegate)
+- [ ] `TestLibraryViewIsTranslucent` — PASS (ítems + cursor ➤ presentes; estilos sin Background)
+- [ ] `TestResultsModalGolden/results_120x30` — PASS (golden bloqueado)
+- [ ] `TestRenderQueueWindowsLongQueue` — PASS (▼ 80 más, techo 20)
+- [ ] `TestComputeLayoutHeight` — PASS (sin regresión)
+- [ ] `TestStylesNoBackground` — PASS (sin regresión Slice 1)
+- [ ] `TestGoldensDiffer` — PASS (sin regresión)
+- [ ] `TestViewGolden/60x20`, `/80x24`, `/120x30` — PASS (sin regresión)
+- [ ] `TestNoLineExceedsWidth` — PASS (sin regresión)
+- [ ] `TestToggleOffParity_*` — PASS (sin regresión)
+- [ ] `TestRenderQueueWindowsLongQueue` (▼ 80 más) — PASS
+- [ ] `caelestiaListDelegate()` en styles.go: ningún subestilo tiene Background
+- [ ] `list.Styles.Title` en themedList: sin Background, foreground mauve #e0aaff
+- [ ] La selección en delegate distingue por color/negrita/borde-izquierdo, no por relleno opaco
+- [ ] Scope: solo 4 archivos fuente tocados (styles.go, view.go, view_test.go, update_test.go)
+      más testdata/view_results_120x30.golden; sin model.go/update.go/messages.go/keys.go/servicios
+- [ ] Líneas de código cambiadas < 400
