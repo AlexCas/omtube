@@ -51,7 +51,7 @@ type layout struct {
 	maxQueueRows            int  // filas visibles de la cola
 	lyricWindow, plainLines int  // ventana de letra sincronizada / plana
 	nowTitleTrunc           int  // truncado del título en "ahora suena"
-	libLineTrunc            int  // truncado de líneas de biblioteca
+	libLineTrunc            int  // truncado de líneas de biblioteca (interior de la caja main)
 	showArtwork             bool
 	navRows                 int  // filas del bloque nav de la sidebar (0 cuando no cabe)
 	compactChrome           bool // alturas mínimas: tarjeta de 1 fila y sin separadores del cuerpo
@@ -201,7 +201,7 @@ func computeLayout(width, height int) layout {
 		lyricWindow:   lyricWindow,
 		plainLines:    plainLines,
 		nowTitleTrunc: nowTitleTrunc,
-		libLineTrunc:  max(20, width-4),
+		libLineTrunc:  max(10, mainW-4),
 		showArtwork:   showArtwork,
 		navRows:       navRows,
 		compactChrome: compactChrome,
@@ -241,6 +241,8 @@ func (m Model) View() string {
 		return "¡Hasta luego!\n"
 	}
 
+	// Pickers de letra/lista: a pantalla completa por diseño (design D8) —
+	// los maneja bubbles/list desde Update y no entran en la caja main.
 	if m.mode == modePicker || m.mode == modeLyricsPicker {
 		return themedList(m.picker).View()
 	}
@@ -257,11 +259,10 @@ func (m Model) View() string {
 
 	// Layout derivado del tamaño actual: se calcula una vez por render y se
 	// enhebra en cada helper (anchos, truncados y ventanas fluidos).
+	// El modo biblioteca (modeLibrary/modeCreatePlaylist) ya no retorna una
+	// vista aparte: fluye por este mismo bloque y renderMain enruta su
+	// contenido al área main con la sidebar persistente (design D8).
 	l := computeLayout(m.width, m.height)
-
-	if m.mode == modeLibrary || m.mode == modeCreatePlaylist {
-		return m.renderLibrary(l)
-	}
 
 	var b strings.Builder
 	b.WriteString(m.styles.title.Render("🎵 Omusic"))
@@ -515,18 +516,25 @@ func (m Model) wrapHelp(text string) string {
 	return m.styles.help.Render(text)
 }
 
-// renderLibrary dibuja el modo biblioteca con sus tres secciones (playlists,
-// favoritos, historial) y la sección activa resaltada.
-func (m Model) renderLibrary(l layout) string {
+// helpLibraryText es la línea de ayuda del modo biblioteca; se dibuja dentro
+// de la caja main envuelta a su ancho interior.
+const helpLibraryText = "↑/↓ navegar · n/p sección · enter reproducir · f favorito · a +playlist · c crear playlist · esc/L volver · q salir"
+
+// renderLibraryInMain compone el contenido del modo biblioteca para la caja
+// main (design D8): encabezado acentuado, prompt de crear playlist cuando
+// aplica, pestañas con la activa entre corchetes, lista con cursor ➤ y su
+// ayuda propia. Devuelve el contenido SIN caja: renderMain lo envuelve en la
+// caja de altura completa, con la sidebar persistente al lado ("Biblioteca"
+// acentuada en la nav). Las filas usan los estilos selected/dim existentes —
+// sin fondos opacos.
+func (m Model) renderLibraryInMain(l layout) string {
 	var b strings.Builder
-	b.WriteString(m.styles.title.Render("📚 Biblioteca"))
-	b.WriteString("\n\n")
+	b.WriteString(sectionHeader(m.styles, "📚 Biblioteca"))
+	b.WriteString("\n")
 	if m.mode == modeCreatePlaylist {
 		b.WriteString(m.input.View())
-	} else {
-		b.WriteString(m.styles.dim.Render(m.status))
+		b.WriteString("\n")
 	}
-	b.WriteString("\n\n")
 
 	tabs := []struct {
 		sec   librarySection
@@ -554,7 +562,11 @@ func (m Model) renderLibrary(l layout) string {
 
 	switch m.libSection {
 	case sectionPlaylists:
-		b.WriteString(m.renderLibList(playlistLines(m.libPlaylists), "(sin playlists)"))
+		lines := playlistLines(m.libPlaylists)
+		for i := range lines {
+			lines[i] = truncate(lines[i], l.libLineTrunc)
+		}
+		b.WriteString(m.renderLibList(lines, "(sin playlists)"))
 	case sectionFavorites:
 		b.WriteString(m.renderLibList(trackLines(m.libFavorites, l.libLineTrunc), "(sin favoritos)"))
 	case sectionHistory:
@@ -562,10 +574,14 @@ func (m Model) renderLibrary(l layout) string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(m.wrapHelp(
-		"↑/↓ navegar · n/p sección · enter reproducir · f favorito · a +playlist · c crear playlist · esc/L volver · q salir"))
-	b.WriteString("\n")
-	return m.center(b.String())
+	// Ayuda de biblioteca envuelta al ancho interior de la caja main para que
+	// ninguna línea desborde (el padding de la caja descuenta 2 columnas).
+	if maxW := l.mainW - 2; maxW > 0 && lipgloss.Width(helpLibraryText) > maxW {
+		b.WriteString(m.styles.help.Width(maxW).Render(helpLibraryText))
+	} else {
+		b.WriteString(m.styles.help.Render(helpLibraryText))
+	}
+	return b.String()
 }
 
 // renderLibList dibuja una lista de líneas con el cursor de biblioteca, o el
@@ -660,13 +676,17 @@ func sectionHeader(s styles, label string) string {
 }
 
 // navHeader dibuja el bloque de navegación estático de la sidebar (design
-// D4a): Cola activa en acento, el resto apagado, cerrado por una regla
-// acentuada. Sin keybindings — jerarquía visual (el slice 3 activará
-// Biblioteca en modo library).
+// D4a/D8): el ítem activo en acento — Biblioteca en modo biblioteca, Cola en
+// el resto —, los demás apagados, cerrado por una regla acentuada. Sin
+// keybindings — jerarquía visual.
 func (m Model) navHeader(l layout) string {
+	active := "Cola"
+	if m.mode == modeLibrary || m.mode == modeCreatePlaylist {
+		active = "Biblioteca"
+	}
 	var b strings.Builder
 	for _, item := range []string{"Cola", "Biblioteca", "Favoritos", "Historial"} {
-		if item == "Cola" {
+		if item == active {
 			b.WriteString(m.styles.navActive.Render("▸ " + item))
 		} else {
 			b.WriteString(m.styles.navItem.Render("  " + item))
@@ -694,8 +714,13 @@ func (m Model) renderSidebar(l layout) string {
 // ancho mainW forzada a mainH filas con la portada APILADA sobre la letra a
 // ancho completo (design D4b/D2f), sin subpaneles con borde propio. Con los
 // servicios apagados la caja queda vacía (paridad de elementos: sin
-// encabezados fantasma).
+// encabezados fantasma). En modo biblioteca la caja aloja el contenido de la
+// biblioteca en lugar de portada+letra (design D8); resultados y pickers NO
+// pasan por aquí — siguen a pantalla completa desde View().
 func (m Model) renderMain(l layout) string {
+	if m.mode == modeLibrary || m.mode == modeCreatePlaylist {
+		return fillBoxHeight(m.styles.panel, l.mainW, l.mainH, m.renderLibraryInMain(l))
+	}
 	return fillBoxHeight(m.styles.panel, l.mainW, l.mainH, m.mainBody(l))
 }
 
