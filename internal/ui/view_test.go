@@ -372,7 +372,7 @@ func TestNoLineExceedsWidth(t *testing.T) {
 // responsivos deben diferir entre sí por pares (el 120×40 añade la variación
 // solo-en-alto del mismo breakpoint wide).
 func TestGoldensDiffer(t *testing.T) {
-	names := []string{"view_60x20.golden", "view_80x24.golden", "view_120x30.golden", "view_120x40.golden"}
+	names := []string{"view_60x20.golden", "view_80x24.golden", "view_120x30.golden", "view_120x40.golden", "view_library_120x30.golden"}
 	goldens := make([][]byte, len(names))
 	for i, name := range names {
 		data, err := os.ReadFile(filepath.Join("testdata", name))
@@ -624,6 +624,89 @@ func TestLibraryViewIsTranslucent(t *testing.T) {
 	if !hasNoBackground(m.styles.dim) {
 		t.Errorf("styles.dim no debe definir Background")
 	}
+}
+
+// TestLibraryInMainSidebarPersists verifica el escenario "Library renders in
+// main with a persistent sidebar" (@slice3): en modo biblioteca la vista
+// conserva la composición sidebar+main — la nav de la sidebar marca
+// Biblioteca como activa (prefijo ▸ del ítem acentuado), la cola persiste al
+// lado y las pestañas, el cursor ➤ y la ayuda de biblioteca viven dentro del
+// área main — sin fondos opacos ni líneas que desborden.
+func TestLibraryInMainSidebarPersists(t *testing.T) {
+	m := newTestModel(t, Services{})
+	m.mode = modeLibrary
+	m.width, m.height = 120, 30
+	m.queue.Add(search.Result{ID: "a", Title: "Alpha Song", Uploader: "Alpha Artist"})
+	m.libSection = sectionFavorites
+	m.libFavorites = []search.Result{
+		{ID: "a", Title: "Canción A", Uploader: "Artista A"},
+		{ID: "b", Title: "Canción B", Uploader: "Artista B"},
+	}
+	m.libCursor = 0
+
+	out := m.View()
+	// Sidebar persistente: nav completa con Biblioteca activa (▸) y la cola.
+	for _, want := range []string{"▸ Biblioteca", "Cola (1)", "Alpha Song"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("la sidebar debe persistir con %q en modo biblioteca; got:\n%s", want, out)
+		}
+	}
+	// Contenido de biblioteca dentro del área main: pestañas, cursor y ayuda.
+	for _, want := range []string{"[Favoritos]", "Playlists", "Historial", "➤ Canción A", "navegar"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("el área main debe mostrar %q en modo biblioteca; got:\n%s", want, out)
+		}
+	}
+	for i, line := range strings.Split(out, "\n") {
+		if w := lipgloss.Width(line); w > 120 {
+			t.Errorf("línea %d excede 120 columnas: %d\n%q", i, w, line)
+		}
+	}
+	if got := lipgloss.Height(out); got > 30 {
+		t.Errorf("la vista biblioteca-en-main mide %d filas; debe caber en 30", got)
+	}
+	// Translucidez del camino biblioteca-en-main: filas de selección y nav
+	// sin Background opaco (design D7d).
+	for _, c := range []struct {
+		name  string
+		style lipgloss.Style
+	}{
+		{"selected", m.styles.selected},
+		{"dim", m.styles.dim},
+		{"navActive", m.styles.navActive},
+		{"navItem", m.styles.navItem},
+		{"sidebar", m.styles.sidebar},
+		{"panel", m.styles.panel},
+	} {
+		if !hasNoBackground(c.style) {
+			t.Errorf("styles.%s no debe definir Background en biblioteca-en-main", c.name)
+		}
+	}
+}
+
+// TestLibraryGolden bloquea el render del modo biblioteca-en-main a 120×30
+// (@slice3): sidebar persistente con Biblioteca activa y el contenido de la
+// biblioteca dentro de la caja main.
+func TestLibraryGolden(t *testing.T) {
+	m := newTestModel(t, Services{
+		Lyrics:  fakeLyrics{},
+		Artwork: fakeArtwork{art: "ART"},
+	})
+	m.mode = modeLibrary
+	m.width, m.height = 120, 30
+	m.queue.Add(search.Result{ID: "a", Title: "Alpha Song", Uploader: "Alpha Artist"})
+	m.queue.Add(search.Result{ID: "b", Title: "Beta Track", Uploader: "Beta Artist"})
+	m.curTrackID = "a"
+	m.pos, m.dur = 45, 180
+	m.libSection = sectionFavorites
+	m.libFavorites = []search.Result{
+		{ID: "a", Title: "Canción A", Uploader: "Artista A"},
+		{ID: "b", Title: "Canción B", Uploader: "Artista B"},
+	}
+	m.libCursor = 1
+
+	out := m.View()
+	compareGolden(t, filepath.Join("testdata", "view_library_120x30.golden"), out)
 }
 
 // TestResultsModalGolden bloquea el render del modal de resultados a 120×30
