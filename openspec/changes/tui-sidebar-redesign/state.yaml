@@ -1,0 +1,182 @@
+active_change: tui-sidebar-redesign
+phase: judge
+status: completed
+slice_progress: "ALL 3 SLICES CLEARED (judge PASS). Awaiting: commit openspec artifacts + push + 3 chained PRs, then archive."
+judge_retries: 0
+slices:
+  slice1: {status: cleared, branch: feat/tui-sidebar-redesign-slice1, head: 5196992, judge: pass}
+  slice2: {status: cleared, branch: feat/tui-sidebar-redesign-slice2, head: 6efcc02, judge: pass}
+  slice3: {status: cleared, branch: feat/tui-sidebar-redesign-slice3, head: 223f2a1, judge: pass}
+preflight:
+  execution_mode: auto
+  artifact_store: openspec
+  chained_pr_strategy: force-chained
+  review_budget: 400
+  playwright_enabled: false
+completed_phases: [explore, propose, spec, design, tasks]
+history:
+  - phase: explore
+    status: in_progress
+    timestamp: "2026-07-21T08:17:17Z"
+  - phase: explore
+    status: completed
+    timestamp: "2026-07-21T08:20:20Z"
+  - phase: propose
+    status: in_progress
+    timestamp: "2026-07-21T08:20:20Z"
+  - phase: propose
+    status: completed
+    timestamp: "2026-07-21T08:24:00Z"
+  - phase: spec
+    status: in_progress
+    timestamp: "2026-07-21T08:24:00Z"
+  - phase: spec
+    status: completed
+    timestamp: "2026-07-21T08:24:00Z"
+  - phase: design
+    status: in_progress
+    timestamp: "2026-07-21T08:24:00Z"
+  - phase: design
+    status: completed
+    timestamp: "2026-07-21T09:05:00Z"
+  - phase: tasks
+    status: in_progress
+    timestamp: "2026-07-21T09:05:00Z"
+  - phase: tasks
+    status: completed
+    timestamp: "2026-07-21T09:12:00Z"
+  - phase: apply
+    status: in_progress
+    timestamp: "2026-07-21T09:12:00Z"
+  - phase: apply
+    status: completed
+    timestamp: "2026-07-21T09:24:00Z"
+    note: "slice 1 of 3"
+  - phase: verify
+    status: in_progress
+    timestamp: "2026-07-21T09:24:00Z"
+    note: "slice 1 of 3"
+  - phase: verify
+    status: completed
+    timestamp: "2026-07-21T09:33:00Z"
+    note: "slice 1 of 3 — PASS-WITH-NOTES"
+  - phase: judge
+    status: in_progress
+    timestamp: "2026-07-21T09:33:00Z"
+    note: "slice 1 of 3"
+  - phase: judge
+    status: failed
+    timestamp: "2026-07-21T15:12:46Z"
+    note: "slice 1 — CRITICAL: 60x20 composed view 22 rows in 20-row terminal (+2), clips visualizer; children not equal bodyH"
+  - phase: apply
+    status: in_progress
+    timestamp: "2026-07-21T15:12:46Z"
+    note: "slice 1 re-apply, judge retry 1 of 3"
+  - phase: apply
+    status: completed
+    timestamp: "2026-07-21T15:19:00Z"
+    note: "slice 1 re-apply retry 1 — commit 1bb4777; View==terminal at all sizes"
+  - phase: verify
+    status: in_progress
+    timestamp: "2026-07-21T15:19:00Z"
+    note: "slice 1 re-verify after retry 1"
+  - phase: verify
+    status: completed
+    timestamp: "2026-07-21T15:24:00Z"
+    note: "slice 1 re-verify retry 1 — PASS"
+  - phase: judge
+    status: in_progress
+    timestamp: "2026-07-21T15:24:00Z"
+    note: "slice 1 re-judge retry 1"
+  - phase: judge
+    status: failed
+    timestamp: "2026-07-21T15:28:37Z"
+    note: "slice 1 retry 1 — height CRITICAL resolved but blind tail-clip drops current ▶ + ▼ marker at 60x20 long queue (Element Parity)"
+  - phase: apply
+    status: in_progress
+    timestamp: "2026-07-21T15:28:37Z"
+    note: "slice 1 re-apply, judge retry 2 of 3"
+  - phase: apply
+    status: completed
+    timestamp: "2026-07-21T15:45:00Z"
+    note: "slice 1 re-apply retry 2 — commit 5196992; markers content-aware, current ▶ survives; 399/400 lines"
+  - phase: verify
+    status: in_progress
+    timestamp: "2026-07-21T15:45:00Z"
+    note: "slice 1 re-verify after retry 2"
+  - phase: verify
+    status: completed
+    timestamp: "2026-07-21T15:51:00Z"
+    note: "slice 1 re-verify retry 2 — PASS; current ▶ survives, 399/400 lines"
+  - phase: judge
+    status: in_progress
+    timestamp: "2026-07-21T15:51:00Z"
+    note: "slice 1 re-judge retry 2"
+  - phase: judge
+    status: completed
+    timestamp: "2026-07-21T15:57:00Z"
+    note: "slice 1 of 3 — PASS (both prior CRITICALs resolved); slice cleared"
+  - phase: apply
+    status: in_progress
+    timestamp: "2026-07-21T16:00:00Z"
+    note: "slice 2 of 3 — expressive styling (chained cycle re-enters apply)"
+  - phase: apply
+    status: completed
+    timestamp: "2026-07-21T16:20:00Z"
+    note: "slice 2 applied — commit 6efcc02, 390/400 lines; compact-chrome + nav fit-gate deviations"
+  - phase: verify
+    status: in_progress
+    timestamp: "2026-07-21T16:20:00Z"
+    note: "slice 2 verify"
+  - phase: verify
+    status: completed
+    timestamp: "2026-07-21T16:26:00Z"
+    note: "slice 2 verify — PASS-WITH-NOTES; deviations #1/#2 acceptable"
+  - phase: judge
+    status: in_progress
+    timestamp: "2026-07-21T16:26:00Z"
+    note: "slice 2 judge"
+  - phase: judge
+    status: completed
+    timestamp: "2026-07-21T16:33:00Z"
+    note: "slice 2 of 3 — PASS (both deviations acceptable); slice cleared. INFO: record nav fit-gate rule in spec (fold into slice 3)"
+  - phase: apply
+    status: in_progress
+    timestamp: "2026-07-21T16:33:00Z"
+    note: "slice 3 of 3 — library in main (chained cycle re-enters apply)"
+  - phase: apply
+    status: completed
+    timestamp: "2026-07-21T16:45:00Z"
+    note: "slice 3 applied — commit 223f2a1, 158/400 lines"
+  - phase: verify
+    status: in_progress
+    timestamp: "2026-07-21T16:45:00Z"
+    note: "slice 3 verify"
+  - phase: verify
+    status: completed
+    timestamp: "2026-07-21T16:51:00Z"
+    note: "slice 3 verify — PASS; 152 lines, pickers full-screen preserved"
+  - phase: judge
+    status: in_progress
+    timestamp: "2026-07-21T16:51:00Z"
+    note: "slice 3 judge (final)"
+  - phase: judge
+    status: completed
+    timestamp: "2026-07-21T16:57:00Z"
+    note: "slice 3 of 3 — PASS; whole change cleared for archive. FLAG: openspec artifacts untracked in git."
+artifacts:
+  - openspec/changes/tui-sidebar-redesign/exploration.md
+  - openspec/changes/tui-sidebar-redesign/proposal.md
+  - openspec/changes/tui-sidebar-redesign/state.yaml
+  - openspec/changes/tui-sidebar-redesign/specs/caelestia-ui/spec.md
+  - openspec/changes/tui-sidebar-redesign/specs/caelestia-ui/caelestia-ui.feature
+  - openspec/changes/tui-sidebar-redesign/design.md
+next_phase: tasks
+open_questions: []
+resolved_decisions:
+  - "Now-playing: footer card (Option B)."
+  - "Narrow (<90): slim rail; lyrics keep max width; no stack/hide."
+  - "Sidebar nav: static list (Cola/Biblioteca/Favoritos/Historial), no new keys."
+  - "Library rendered INTO main; pickers/results stay full-screen."
+  - "Artwork stacked ABOVE lyrics."
+  - "Goldens: keep 60x20/80x24/120x30 and ADD 120x40."

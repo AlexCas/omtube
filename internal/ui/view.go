@@ -35,18 +35,23 @@ func classify(width int) breakpoint {
 }
 
 // layout agrupa las dimensiones derivadas del tamaño de la terminal que usan
-// los render helpers. Los anchos de panel (queueW/lyricsW/artW) son el valor
-// que se pasa a Style.Width(); el borde redondeado añade 2 columnas por panel,
-// ya descontadas del presupuesto en computeLayout.
+// los render helpers. La división principal es sidebar | main (design D1):
+// dos cajas de altura completa cuyos anchos exteriores son sidebarW/mainW.
+// Los anchos de panel (queueW/lyricsW/artW) son el valor que se pasa a
+// Style.Width(); el borde redondeado añade 2 columnas por panel, ya
+// descontadas del presupuesto en computeLayout.
 type layout struct {
 	bp                      breakpoint
-	queueW, lyricsW, artW   int // anchos de panel (parámetro de Width)
-	progressW               int // ancho de la barra de progreso
-	bodyH                   int // filas disponibles para la sección media
-	maxQueueRows            int // filas visibles de la cola
-	lyricWindow, plainLines int // ventana de letra sincronizada / plana
-	nowTitleTrunc           int // truncado del título en "ahora suena"
-	libLineTrunc            int // truncado de líneas de biblioteca
+	sidebarW, mainW         int  // anchos exteriores de las dos columnas (parámetro de Width)
+	sidebarH, mainH         int  // = bodyH; alto que llena cada columna
+	slimRail                bool // true en narrow (<90): sidebar colapsada a rail
+	queueW, lyricsW, artW   int  // anchos de panel (parámetro de Width)
+	progressW               int  // ancho de la barra de progreso
+	bodyH                   int  // filas disponibles para la sección media
+	maxQueueRows            int  // filas visibles de la cola
+	lyricWindow, plainLines int  // ventana de letra sincronizada / plana
+	nowTitleTrunc           int  // truncado del título en "ahora suena"
+	libLineTrunc            int  // truncado de líneas de biblioteca
 	showArtwork             bool
 }
 
@@ -91,58 +96,75 @@ func computeLayout(width, height int) layout {
 	const minBody = 4
 	bodyH := max(height-(chromeFixed+helpRows(width)), minBody)
 
-	var queueW, lyricsW, artW int
-	if bp == bpNarrow {
-		// Dos columnas: la portada se oculta bajo el breakpoint narrow y el
-		// presupuesto se reparte entre cola (~42%) y letra (~58%).
-		budget := usable - 2*panelBorder
-		queueW = clamp(int(math.Round(float64(budget)*0.42)), 24, 40)
-		lyricsW = budget - queueW
+	// División principal sidebar | main (design D1): dos cajas con borde de
+	// altura completa; cada una cuesta panelBorder columnas fuera de Width().
+	// Invariante D1d: sidebarW + mainW + 2*panelBorder == usable, por
+	// construcción (mainW toma el remanente del presupuesto).
+	split := usable - 2*panelBorder
+	slimRail := bp == bpNarrow
+	var sidebarW int
+	if slimRail {
+		// Rail delgado (<90, design D1c): la cola se comprime a un rail y el
+		// área main conserva el ancho máximo disponible para la letra.
+		const railMin, railMax = 16, 22
+		sidebarW = clamp(int(math.Round(float64(split)*0.22)), railMin, railMax)
 	} else {
-		// Tres columnas con borde. Proporciones por breakpoint: medium
-		// 34/40/26, wide 30/44/26; el remanente de redondeo se pliega en la
-		// letra para que la fila central nunca exceda usable.
-		budget := usable - 3*panelBorder
-		qPct, aPct := 0.34, 0.26
-		if bp == bpWide {
-			qPct = 0.30
-		}
-		const qMin, lMin, aMin, aMax = 24, 28, 24, 28
-		queueW = clamp(int(math.Round(float64(budget)*qPct)), qMin, 40)
-		artW = clamp(int(math.Round(float64(budget)*aPct)), aMin, aMax)
-		lyricsW = budget - queueW - artW
-		if lyricsW < lMin {
-			// Devolver columnas desde cola y portada, sin bajar de sus mínimos.
-			if give := min(lMin-lyricsW, queueW-qMin); give > 0 {
-				queueW -= give
-				lyricsW += give
-			}
-			if give := min(lMin-lyricsW, artW-aMin); give > 0 {
-				artW -= give
-				lyricsW += give
-			}
-		}
+		const sbMin, sbMax = 26, 40
+		sidebarW = clamp(int(math.Round(float64(split)*0.30)), sbMin, sbMax)
+	}
+	mainW := split - sidebarW
+
+	// Anchos interiores del área main. Intermedio del slice 1: letra y portada
+	// se dibujan lado a lado DENTRO de la caja main, así que sus subpaneles con
+	// borde deben caber en el ancho interior (mainW menos padding 2 de la caja
+	// main y panelBorder por subpanel). El slice 2 los apila a ancho completo.
+	showArtwork := bp != bpNarrow
+	queueW := sidebarW
+	var lyricsW, artW int
+	if showArtwork {
+		inner := mainW - 2 - 2*panelBorder
+		artW = clamp(int(math.Round(float64(inner)*0.30)), 24, 28)
+		lyricsW = inner - artW
+	} else {
+		lyricsW = mainW - 2 - panelBorder
 	}
 
 	// Línea "ahora suena": el resto de la línea (estado, tiempos, volumen y
 	// separadores) ocupa ~24 columnas fijas; título y barra reparten el resto.
+	// El truncado del título queda acotado también por el ancho de la terminal
+	// para que título + barra mínima (8) nunca desborden la línea.
 	const nowDecor = 24
-	nowTitleTrunc := max(8, lyricsW-4)
+	nowTitleTrunc := max(8, min(lyricsW-4, width-nowDecor-8))
 	progressW := clamp(width-nowDecor-nowTitleTrunc, 8, 40)
 
-	// Filas de la cola: bodyH menos el chrome real del panel (2 de borde,
-	// 1 de encabezado y hasta 2 marcadores ▲/▼ = 5 filas de overhead), con
-	// piso 3 para no colapsar en alturas chicas y techo 20 (design D4).
-	maxQueueRows := clamp(bodyH-5, 3, 20)
-	// Ventana de letra sincronizada: bodyH menos borde (2) y encabezado (1),
-	// normalizada a impar para que la línea activa quede centrada.
-	lyricWindow := clamp(bodyH-3, 3, 12)
+	// Alturas de las columnas (design D2a): ambas llenan la sección media.
+	sidebarH := bodyH
+	mainH := bodyH
+
+	// Filas de la cola (design D2b): sidebarH menos el chrome real del panel
+	// (2 de borde, 1 de encabezado y hasta 2 marcadores ▲/▼ = 5 filas). Sin
+	// techo fijo, con techo duro en el interior de la caja (fillBoxHeight).
+	const queueChrome = 5
+	maxQueueRows := clamp(sidebarH-queueChrome, 3, max(sidebarH-panelBorder-1, 3))
+	// Ventana de letra sincronizada (design D2c): mainH menos el chrome del
+	// intermedio del slice 1 — borde de la caja main (2) + borde del subpanel
+	// de letra (2) + encabezado (1) = 5 —, sin techo fijo y normalizada a
+	// impar para que la línea activa quede centrada.
+	const lyricChrome = 5
+	lyricWindow := clamp(mainH-lyricChrome, 3, mainH)
 	if lyricWindow%2 == 0 {
 		lyricWindow--
 	}
+	// Letra plana (design D2d): misma derivación sin normalización impar.
+	plainLines := clamp(mainH-lyricChrome, 3, mainH)
 
 	return layout{
 		bp:            bp,
+		sidebarW:      sidebarW,
+		mainW:         mainW,
+		sidebarH:      sidebarH,
+		mainH:         mainH,
+		slimRail:      slimRail,
 		queueW:        queueW,
 		lyricsW:       lyricsW,
 		artW:          artW,
@@ -150,10 +172,10 @@ func computeLayout(width, height int) layout {
 		bodyH:         bodyH,
 		maxQueueRows:  maxQueueRows,
 		lyricWindow:   lyricWindow,
-		plainLines:    clamp(bodyH-3, 3, 12),
+		plainLines:    plainLines,
 		nowTitleTrunc: nowTitleTrunc,
 		libLineTrunc:  max(20, width-4),
-		showArtwork:   bp != bpNarrow,
+		showArtwork:   showArtwork,
 	}
 }
 
@@ -302,13 +324,20 @@ func (m Model) renderQueue() string {
 	return m.renderQueueAt(computeLayout(m.width, m.height))
 }
 
-// renderQueueAt dibuja el panel de cola con las dimensiones del layout. Una
-// cola más larga que l.maxQueueRows (p.ej. una playlist importada) se muestra
-// como una ventana deslizante alrededor de la pista actual, evitando que el
-// panel crezca sin límite y rompa el layout. La cola interna se mantiene
-// completa. Cada fila descuenta 6 columnas del ancho del panel: 2 de padding,
-// 2 de marca de caché y 2 del prefijo ▶/espacios.
+// renderQueueAt dibuja el panel de cola con las dimensiones del layout,
+// envolviendo el cuerpo en la caja de panel histórica (la sidebar de altura
+// completa usa el mismo cuerpo via renderSidebar).
 func (m Model) renderQueueAt(l layout) string {
+	return m.styles.panel.Width(l.queueW).Render(m.queueBody(l))
+}
+
+// queueBody compone el contenido del panel de cola: encabezado, ventana
+// deslizante y marcadores ▲/▼. Una cola más larga que l.maxQueueRows (p.ej.
+// una playlist importada) se muestra como una ventana alrededor de la pista
+// actual, evitando que el panel crezca sin límite y rompa el layout. La cola
+// interna se mantiene completa. Cada fila descuenta 6 columnas del ancho del
+// panel: 2 de padding, 2 de marca de caché y 2 del prefijo ▶/espacios.
+func (m Model) queueBody(l layout) string {
 	var b strings.Builder
 	items := m.queue.Items()
 	total := len(items)
@@ -320,11 +349,18 @@ func (m Model) renderQueueAt(l layout) string {
 	b.WriteString("\n")
 	if total == 0 {
 		b.WriteString(m.styles.dim.Render("(vacía)"))
-		return m.styles.panel.Width(l.queueW).Render(b.String())
+		return b.String()
 	}
 
+	// Los marcadores ▲/▼ solo se dibujan si caben en el interior de la caja;
+	// se omiten antes que filas de pista (fila ▶ visible: Parity @slice1).
 	start, end := queueWindow(m.queue.Index(), total, l.maxQueueRows)
-	if start > 0 {
+	free := l.sidebarH - panelBorder - 1 - (end - start)
+	showDown := end < total && free > 0
+	if showDown {
+		free--
+	}
+	if start > 0 && free > 0 {
 		b.WriteString(m.styles.dim.Render(fmt.Sprintf("  ▲ %d más", start)))
 		b.WriteString("\n")
 	}
@@ -339,10 +375,10 @@ func (m Model) renderQueueAt(l layout) string {
 		b.WriteString(m.cacheMark(r.ID) + prefix + truncate(line, l.queueW-6))
 		b.WriteString("\n")
 	}
-	if end < total {
+	if showDown {
 		b.WriteString(m.styles.dim.Render(fmt.Sprintf("  ▼ %d más", total-end)))
 	}
-	return m.styles.panel.Width(l.queueW).Render(b.String())
+	return strings.TrimSuffix(b.String(), "\n")
 }
 
 // queueWindow calcula el rango [start, end) de pistas a mostrar para una cola de
@@ -512,19 +548,57 @@ func (m Model) cacheMark(id string) string {
 	return "  "
 }
 
-// renderMiddleSection compone la cola y los paneles de enriquecimiento en una
-// fila horizontal. Cuando los servicios de enriquecimiento están apagados (nil)
-// solo se muestra la cola, manteniendo paridad con la Fase 2. La banda ocupa
-// las l.bodyH filas de la sección media: PlaceVertical rellena el alto sobrante
-// (alineada arriba) y deja el contenido intacto cuando ya es más alto, de modo
-// que ningún elemento obligatorio se recorta; en alturas chicas los paneles ya
-// llegan encogidos por los clamps de computeLayout.
+// renderMiddleSection compone la sección media como dos columnas de altura
+// completa: sidebar (cola) y main (enriquecimiento), unidas con JoinHorizontal
+// (design D3). Ambas cajas llegan forzadas a bodyH filas desde sus renderers
+// (design D6), así que la unión mide exactamente bodyH filas y no queda banda
+// en blanco entre el cuerpo y la ayuda.
 func (m Model) renderMiddleSection(l layout) string {
-	band := m.renderQueueAt(l)
-	if enrich := m.renderEnrichment(l); enrich != "" {
-		band = lipgloss.JoinHorizontal(lipgloss.Top, band, enrich)
+	sidebar := m.renderSidebar(l)
+	if l.mainW <= 0 {
+		// Terminal tan estrecha que no cabe área main: solo la sidebar.
+		return sidebar
 	}
-	return lipgloss.PlaceVertical(l.bodyH, lipgloss.Top, band)
+	return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, m.renderMain(l))
+}
+
+// fillBoxHeight fuerza una caja con borde a ocupar exactamente rows filas en
+// total (design D6): Height fija el bloque interior a rows-panelBorder y el
+// borde inferior aterriza en la última fila. Height rellena contenido corto
+// pero NO encoge contenido más alto que su objetivo, así que un contenido que
+// exceda las filas interiores (p.ej. el subpanel de letra con su chrome propio
+// cuando bodyH toca el piso) se recorta ANTES de renderizar: la caja nunca
+// crece más allá de rows y la vista compuesta no desborda la terminal (design
+// D6 / Layout Resilience: recortar en vez de crecer). Si Height no rellenara
+// (fallback documentado en el design), PlaceVertical completa el alto
+// restante; el assert de banda-en-blanco de las pruebas vigila este camino.
+func fillBoxHeight(box lipgloss.Style, w, rows int, content string) string {
+	inner := rows - panelBorder
+	if lines := strings.Split(content, "\n"); len(lines) > inner {
+		content = strings.Join(lines[:inner], "\n")
+	}
+	out := box.Width(w).Height(inner).Render(content)
+	if lipgloss.Height(out) < rows {
+		out = lipgloss.PlaceVertical(rows, lipgloss.Top, out)
+	}
+	return out
+}
+
+// renderSidebar dibuja la columna lateral de altura completa: una caja de
+// ancho sidebarW forzada a sidebarH filas cuyo contenido es el cuerpo de la
+// cola. En modo slimRail (narrow) el contenido es el mismo, ya comprimido por
+// los anchos del layout (títulos truncados a queueW-6).
+func (m Model) renderSidebar(l layout) string {
+	return fillBoxHeight(m.styles.panel, l.sidebarW, l.sidebarH, m.queueBody(l))
+}
+
+// renderMain dibuja la columna principal de altura completa: una caja de
+// ancho mainW forzada a mainH filas. Intermedio del slice 1: el contenido es
+// el enriquecimiento existente (letra y portada lado a lado); el slice 2 lo
+// reemplaza por el apilado portada-sobre-letra. Con los servicios apagados la
+// caja queda vacía (paridad de elementos: sin encabezados fantasma).
+func (m Model) renderMain(l layout) string {
+	return fillBoxHeight(m.styles.panel, l.mainW, l.mainH, m.renderEnrichment(l))
 }
 
 // renderEnrichment compone los paneles de letra y portada lado a lado. Devuelve
