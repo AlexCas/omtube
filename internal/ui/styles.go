@@ -6,15 +6,20 @@ import (
 )
 
 type styles struct {
-	title    lipgloss.Style
-	panel    lipgloss.Style
-	heading  lipgloss.Style
-	selected lipgloss.Style
-	current  lipgloss.Style
-	dim      lipgloss.Style
-	help     lipgloss.Style
-	errorMsg lipgloss.Style
-	viz      lipgloss.Style
+	title     lipgloss.Style
+	panel     lipgloss.Style
+	heading   lipgloss.Style
+	selected  lipgloss.Style
+	current   lipgloss.Style
+	dim       lipgloss.Style
+	help      lipgloss.Style
+	errorMsg  lipgloss.Style
+	viz       lipgloss.Style
+	sidebar   lipgloss.Style // caja de la columna lateral de altura completa (design D7a)
+	card      lipgloss.Style // tarjeta de "ahora suena" al pie (design D7a)
+	navActive lipgloss.Style // ítem de navegación activo: acento en negrita (design D7b)
+	navItem   lipgloss.Style // ítem de navegación inactivo: apagado (design D7b)
+	accentBar lipgloss.Style // barra/regla de acento de los encabezados (design D7c)
 }
 
 func defaultStyles() styles {
@@ -35,6 +40,24 @@ func defaultStyles() styles {
 		help:     lipgloss.NewStyle().Foreground(lipgloss.Color("#a0a0a0")),
 		errorMsg: lipgloss.NewStyle().Foreground(lipgloss.Color("#e0aaff")).Bold(true),
 		viz:      lipgloss.NewStyle().Foreground(lipgloss.Color("#e0aaff")),
+		// Estilos del rediseño sidebar (design D7): todos translúcidos —
+		// solo foreground/borde, NUNCA Background, para conservar el vidrio
+		// de la terminal.
+		sidebar: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#e0aaff")).
+			Padding(0, 1),
+		card: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#e0aaff")).
+			Padding(0, 1),
+		navActive: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#e0aaff")).
+			Bold(true),
+		navItem: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#a0a0a0")),
+		accentBar: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#e0aaff")),
 	}
 }
 
