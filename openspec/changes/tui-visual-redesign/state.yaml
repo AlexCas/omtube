@@ -1,0 +1,34 @@
+active_change: tui-visual-redesign
+phase: tasks
+status: in_progress
+preflight:
+  execution_mode: interactive
+  artifact_store: openspec
+  chained_pr_strategy: ask-always
+  review_budget: 400
+  playwright_enabled: false
+completed_phases:
+  - phase: explore
+    status: completed
+    timestamp: "2026-07-21T00:00:00Z"
+  - phase: propose
+    status: completed
+    timestamp: "2026-07-21T00:00:00Z"
+  - phase: spec
+    status: completed
+    timestamp: "2026-07-21T00:00:00Z"
+  - phase: design
+    status: completed
+    timestamp: "2026-07-21T00:00:00Z"
+  - phase: tasks
+    status: in_progress
+    timestamp: "2026-07-21T12:00:00Z"
+artifacts:
+  - openspec/changes/tui-visual-redesign/exploration.md
+  - openspec/changes/tui-visual-redesign/proposal.md
+  - openspec/changes/tui-visual-redesign/specs/caelestia-ui/spec.md
+  - openspec/changes/tui-visual-redesign/specs/caelestia-ui/caelestia-ui.feature
+  - openspec/changes/tui-visual-redesign/design.md
+  - openspec/changes/tui-visual-redesign/tasks.md
+next_phase: apply
+open_questions: []

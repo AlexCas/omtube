@@ -11,6 +11,125 @@ import (
 	"github.com/alexcasdev/terminaltube/internal/storage"
 )
 
+// breakpoint clasifica el ancho de la terminal en las tres bandas responsivas
+// del rediseño Caelestia.
+type breakpoint int
+
+const (
+	bpNarrow breakpoint = iota // < 90 cols
+	bpMedium                   // 90–119 cols
+	bpWide                     // >= 120 cols
+)
+
+// classify devuelve el breakpoint correspondiente a un ancho de terminal.
+func classify(width int) breakpoint {
+	switch {
+	case width < 90:
+		return bpNarrow
+	case width < 120:
+		return bpMedium
+	default:
+		return bpWide
+	}
+}
+
+// layout agrupa las dimensiones derivadas del tamaño de la terminal que usan
+// los render helpers. Los anchos de panel (queueW/lyricsW/artW) son el valor
+// que se pasa a Style.Width(); el borde redondeado añade 2 columnas por panel,
+// ya descontadas del presupuesto en computeLayout.
+type layout struct {
+	bp                      breakpoint
+	queueW, lyricsW, artW   int // anchos de panel (parámetro de Width)
+	progressW               int // ancho de la barra de progreso
+	maxQueueRows            int // filas visibles de la cola
+	lyricWindow, plainLines int // ventana de letra sincronizada / plana
+	nowTitleTrunc           int // truncado del título en "ahora suena"
+	libLineTrunc            int // truncado de líneas de biblioteca
+	showArtwork             bool
+}
+
+// minUsable es el piso del ancho útil: por debajo el layout no intenta
+// comprimirse más (terminales tan estrechas no están soportadas).
+const minUsable = 40
+
+// panelBorder son las columnas que el borde redondeado añade fuera de Width().
+const panelBorder = 2
+
+// computeLayout deriva el layout del tamaño actual de la terminal. Es una
+// función pura: mismo (width, height) ⇒ mismo layout. En la Slice 1 solo el
+// ancho gobierna; height alimentará filas/ventanas dinámicas en la Slice 2.
+func computeLayout(width, height int) layout {
+	bp := classify(width)
+	usable := max(width-2, minUsable) // margen exterior de 2 columnas
+
+	// Presupuesto de contenido de la fila central: tres paneles con borde.
+	budget := usable - 3*panelBorder
+
+	// Porcentajes y clamps por breakpoint. En la Slice 1 la portada sigue
+	// visible también en narrow (ocultarla es Slice 2), así que narrow usa un
+	// reparto de tres columnas con mínimos relajados para no desbordar.
+	var qPct, aPct float64
+	var qMin, lMin, aMin, aMax int
+	switch bp {
+	case bpNarrow:
+		qPct, aPct = 0.34, 0.24
+		qMin, lMin, aMin, aMax = 14, 16, 8, 28
+	case bpMedium:
+		qPct, aPct = 0.34, 0.26
+		qMin, lMin, aMin, aMax = 24, 28, 24, 28
+	default: // bpWide
+		qPct, aPct = 0.30, 0.26
+		qMin, lMin, aMin, aMax = 24, 28, 24, 28
+	}
+	queueW := clamp(int(math.Round(float64(budget)*qPct)), qMin, 40)
+	artW := clamp(int(math.Round(float64(budget)*aPct)), aMin, aMax)
+	// El remanente se pliega en la letra: la suma queda exactamente en budget,
+	// de modo que la fila central nunca excede usable.
+	lyricsW := budget - queueW - artW
+	if lyricsW < lMin {
+		// Devolver columnas desde cola y portada, sin bajar de sus mínimos.
+		if give := min(lMin-lyricsW, queueW-qMin); give > 0 {
+			queueW -= give
+			lyricsW += give
+		}
+		if give := min(lMin-lyricsW, artW-aMin); give > 0 {
+			artW -= give
+			lyricsW += give
+		}
+	}
+
+	// Línea "ahora suena": el resto de la línea (estado, tiempos, volumen y
+	// separadores) ocupa ~24 columnas fijas; título y barra reparten el resto.
+	const nowDecor = 24
+	nowTitleTrunc := max(8, lyricsW-4)
+	progressW := clamp(width-nowDecor-nowTitleTrunc, 8, 40)
+
+	return layout{
+		bp:            bp,
+		queueW:        queueW,
+		lyricsW:       lyricsW,
+		artW:          artW,
+		progressW:     progressW,
+		maxQueueRows:  10, // dinámico según height en la Slice 2
+		lyricWindow:   7,  // dinámico según height en la Slice 2
+		plainLines:    8,
+		nowTitleTrunc: nowTitleTrunc,
+		libLineTrunc:  max(20, width-4),
+		showArtwork:   bp != bpNarrow, // lo consumirá la Slice 2
+	}
+}
+
+// clamp acota v al rango [lo, hi].
+func clamp(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
 // View renderiza la TUI.
 func (m Model) View() string {
 	if m.quitting {
@@ -31,8 +150,12 @@ func (m Model) View() string {
 		return rb.String()
 	}
 
+	// Layout derivado del tamaño actual: se calcula una vez por render y se
+	// enhebra en cada helper (anchos, truncados y ventanas fluidos).
+	l := computeLayout(m.width, m.height)
+
 	if m.mode == modeLibrary || m.mode == modeCreatePlaylist {
-		return m.renderLibrary()
+		return m.renderLibrary(l)
 	}
 
 	var b strings.Builder
@@ -40,7 +163,7 @@ func (m Model) View() string {
 	b.WriteString("\n\n")
 
 	// Barra de "ahora suena" en la parte superior (Caelestia layout).
-	b.WriteString(m.renderNowPlaying())
+	b.WriteString(m.renderNowPlaying(l))
 	b.WriteString("\n\n")
 
 	// Barra de búsqueda/prompt o estado.
@@ -54,7 +177,7 @@ func (m Model) View() string {
 	// Sección media: cola + paneles de enriquecimiento (letra/portada) lado a
 	// lado. Los paneles de enriquecimiento solo se dibujan cuando su servicio
 	// está activo; con los toggles apagados la vista es la de la Fase 2.
-	b.WriteString(m.renderMiddleSection())
+	b.WriteString(m.renderMiddleSection(l))
 	b.WriteString("\n\n")
 
 	// Ayuda en la parte inferior, seguida del visualizador de barras.
@@ -119,13 +242,19 @@ func (m Model) center(s string) string {
 	return lipgloss.PlaceHorizontal(m.width, lipgloss.Center, s)
 }
 
-// maxQueueRows es el número máximo de pistas que el panel de cola dibuja a la vez.
-// Una cola más larga (p.ej. una playlist importada) se muestra como una ventana
-// deslizante alrededor de la pista actual, evitando que el panel crezca sin
-// límite y rompa el layout. La cola interna se mantiene completa.
-const maxQueueRows = 10
-
+// renderQueue conserva la firma histórica (la invocan pruebas del paquete);
+// deriva el layout del tamaño actual del modelo.
 func (m Model) renderQueue() string {
+	return m.renderQueueAt(computeLayout(m.width, m.height))
+}
+
+// renderQueueAt dibuja el panel de cola con las dimensiones del layout. Una
+// cola más larga que l.maxQueueRows (p.ej. una playlist importada) se muestra
+// como una ventana deslizante alrededor de la pista actual, evitando que el
+// panel crezca sin límite y rompa el layout. La cola interna se mantiene
+// completa. Cada fila descuenta 6 columnas del ancho del panel: 2 de padding,
+// 2 de marca de caché y 2 del prefijo ▶/espacios.
+func (m Model) renderQueueAt(l layout) string {
 	var b strings.Builder
 	items := m.queue.Items()
 	total := len(items)
@@ -137,10 +266,10 @@ func (m Model) renderQueue() string {
 	b.WriteString("\n")
 	if total == 0 {
 		b.WriteString(m.styles.dim.Render("(vacía)"))
-		return m.styles.panel.Width(36).Render(b.String())
+		return m.styles.panel.Width(l.queueW).Render(b.String())
 	}
 
-	start, end := queueWindow(m.queue.Index(), total, maxQueueRows)
+	start, end := queueWindow(m.queue.Index(), total, l.maxQueueRows)
 	if start > 0 {
 		b.WriteString(m.styles.dim.Render(fmt.Sprintf("  ▲ %d más", start)))
 		b.WriteString("\n")
@@ -153,13 +282,13 @@ func (m Model) renderQueue() string {
 			prefix = m.styles.current.Render("▶ ")
 			line = m.styles.current.Render(line)
 		}
-		b.WriteString(m.cacheMark(r.ID) + prefix + truncate(line, 28))
+		b.WriteString(m.cacheMark(r.ID) + prefix + truncate(line, l.queueW-6))
 		b.WriteString("\n")
 	}
 	if end < total {
 		b.WriteString(m.styles.dim.Render(fmt.Sprintf("  ▼ %d más", total-end)))
 	}
-	return m.styles.panel.Width(36).Render(b.String())
+	return m.styles.panel.Width(l.queueW).Render(b.String())
 }
 
 // queueWindow calcula el rango [start, end) de pistas a mostrar para una cola de
@@ -186,7 +315,7 @@ func queueWindow(idx, total, window int) (start, end int) {
 	return start, end
 }
 
-func (m Model) renderNowPlaying() string {
+func (m Model) renderNowPlaying(l layout) string {
 	cur, ok := m.queue.Current()
 	if !ok {
 		return m.styles.dim.Render("Nada en reproducción")
@@ -195,10 +324,10 @@ func (m Model) renderNowPlaying() string {
 	if m.player.Paused() {
 		state = "⏸"
 	}
-	bar := progressBar(m.pos, m.dur, 30)
+	bar := progressBar(m.pos, m.dur, l.progressW)
 	return fmt.Sprintf("%s %s  %s  %s/%s  vol %d",
 		state,
-		m.styles.current.Render(truncate(cur.Title, 32)),
+		m.styles.current.Render(truncate(cur.Title, l.nowTitleTrunc)),
 		bar,
 		fmtTime(m.pos), fmtTime(m.dur),
 		m.player.Volume(),
@@ -216,13 +345,22 @@ func (m Model) isInputMode() bool {
 }
 
 func (m Model) renderHelp() string {
-	return m.styles.help.Render(
+	return m.wrapHelp(
 		"/ buscar · u URL · i importar · enter encolar · espacio play/pausa · n/p sig/ant · y letra · C limpiar · f favorito · a +playlist · L biblioteca · q salir")
+}
+
+// wrapHelp aplica el estilo de ayuda y, cuando el texto no cabe en el ancho
+// útil de la terminal, lo envuelve para que ninguna línea desborde.
+func (m Model) wrapHelp(text string) string {
+	if maxW := m.width - 2; maxW > 0 && lipgloss.Width(text) > maxW {
+		return m.styles.help.Width(maxW).Render(text)
+	}
+	return m.styles.help.Render(text)
 }
 
 // renderLibrary dibuja el modo biblioteca con sus tres secciones (playlists,
 // favoritos, historial) y la sección activa resaltada.
-func (m Model) renderLibrary() string {
+func (m Model) renderLibrary(l layout) string {
 	var b strings.Builder
 	b.WriteString(m.styles.title.Render("📚 Biblioteca"))
 	b.WriteString("\n\n")
@@ -261,13 +399,13 @@ func (m Model) renderLibrary() string {
 	case sectionPlaylists:
 		b.WriteString(m.renderLibList(playlistLines(m.libPlaylists), "(sin playlists)"))
 	case sectionFavorites:
-		b.WriteString(m.renderLibList(trackLines(m.libFavorites), "(sin favoritos)"))
+		b.WriteString(m.renderLibList(trackLines(m.libFavorites, l.libLineTrunc), "(sin favoritos)"))
 	case sectionHistory:
-		b.WriteString(m.renderLibList(trackLines(m.libHistory), "(historial vacío)"))
+		b.WriteString(m.renderLibList(trackLines(m.libHistory, l.libLineTrunc), "(historial vacío)"))
 	}
 
 	b.WriteString("\n")
-	b.WriteString(m.styles.help.Render(
+	b.WriteString(m.wrapHelp(
 		"↑/↓ navegar · n/p sección · enter reproducir · f favorito · a +playlist · c crear playlist · esc/L volver · q salir"))
 	b.WriteString("\n")
 	return m.center(b.String())
@@ -299,14 +437,14 @@ func playlistLines(pls []storage.Playlist) []string {
 	return out
 }
 
-func trackLines(tracks []search.Result) []string {
+func trackLines(tracks []search.Result, maxCols int) []string {
 	out := make([]string, 0, len(tracks))
 	for _, t := range tracks {
 		line := t.Title
 		if t.Uploader != "" {
 			line += "  — " + t.Uploader
 		}
-		out = append(out, truncate(line, 60))
+		out = append(out, truncate(line, maxCols))
 	}
 	return out
 }
@@ -324,9 +462,9 @@ func (m Model) cacheMark(id string) string {
 // renderMiddleSection compone la cola y los paneles de enriquecimiento en una
 // fila horizontal. Cuando los servicios de enriquecimiento están apagados (nil)
 // solo se muestra la cola, manteniendo paridad con la Fase 2.
-func (m Model) renderMiddleSection() string {
-	queue := m.renderQueue()
-	if enrich := m.renderEnrichment(); enrich != "" {
+func (m Model) renderMiddleSection(l layout) string {
+	queue := m.renderQueueAt(l)
+	if enrich := m.renderEnrichment(l); enrich != "" {
 		return lipgloss.JoinHorizontal(lipgloss.Top, queue, enrich)
 	}
 	return queue
@@ -334,7 +472,7 @@ func (m Model) renderMiddleSection() string {
 
 // renderEnrichment compone los paneles de letra y portada lado a lado. Devuelve
 // "" cuando ninguno de los dos servicios está activo (paridad con la Fase 2).
-func (m Model) renderEnrichment() string {
+func (m Model) renderEnrichment(l layout) string {
 	hasLyrics := m.lyrics != nil
 	hasArtwork := m.artwork != nil
 	if !hasLyrics && !hasArtwork {
@@ -342,17 +480,23 @@ func (m Model) renderEnrichment() string {
 	}
 	var panels []string
 	if hasLyrics {
-		panels = append(panels, m.renderLyricsPanel())
+		panels = append(panels, m.renderLyricsPanelAt(l))
 	}
 	if hasArtwork {
-		panels = append(panels, m.renderArtworkPanel())
+		panels = append(panels, m.renderArtworkPanelAt(l))
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, panels...)
 }
 
-// renderLyricsPanel dibuja la letra de la pista actual; resalta la línea activa
-// cuando es sincronizada y muestra "sin letra" cuando no hay ninguna.
+// renderLyricsPanel conserva la firma histórica (la invocan pruebas del
+// paquete); deriva el layout del tamaño actual del modelo.
 func (m Model) renderLyricsPanel() string {
+	return m.renderLyricsPanelAt(computeLayout(m.width, m.height))
+}
+
+// renderLyricsPanelAt dibuja la letra de la pista actual; resalta la línea
+// activa cuando es sincronizada y muestra "sin letra" cuando no hay ninguna.
+func (m Model) renderLyricsPanelAt(l layout) string {
 	var b strings.Builder
 	b.WriteString(m.styles.heading.Render("Letra"))
 	b.WriteString("\n")
@@ -361,17 +505,18 @@ func (m Model) renderLyricsPanel() string {
 	case m.curLyrics.Empty():
 		b.WriteString(m.styles.dim.Render("sin letra"))
 	case m.curLyrics.Synced:
-		b.WriteString(m.renderSyncedLyrics())
+		b.WriteString(m.renderSyncedLyrics(l))
 	default:
-		b.WriteString(truncateLines(m.curLyrics.Plain, 48, 8))
+		b.WriteString(truncateLines(m.curLyrics.Plain, l.lyricsW-2, l.plainLines))
 	}
-	return m.styles.panel.Width(50).Render(b.String())
+	return m.styles.panel.Width(l.lyricsW).Render(b.String())
 }
 
 // renderSyncedLyrics muestra una ventana de líneas alrededor de la línea activa,
-// resaltándola.
-func (m Model) renderSyncedLyrics() string {
-	const window = 7
+// resaltándola. El truncado descuenta 4 columnas del ancho del panel: 2 de
+// padding y 2 del prefijo "▶ ".
+func (m Model) renderSyncedLyrics(l layout) string {
+	window := l.lyricWindow
 	lines := m.curLyrics.Lines
 	if len(lines) == 0 {
 		return m.styles.dim.Render("sin letra")
@@ -387,7 +532,7 @@ func (m Model) renderSyncedLyrics() string {
 	}
 	var b strings.Builder
 	for i := start; i < end; i++ {
-		text := truncate(lines[i].Text, 46)
+		text := truncate(lines[i].Text, l.lyricsW-4)
 		if i == cur {
 			b.WriteString(m.styles.current.Render("▶ " + text))
 		} else {
@@ -400,9 +545,15 @@ func (m Model) renderSyncedLyrics() string {
 	return b.String()
 }
 
-// renderArtworkPanel dibuja la portada renderizada de la pista actual, o un
-// estado de degradación cuando no hay portada.
+// renderArtworkPanel conserva la firma histórica (la invocan pruebas del
+// paquete); deriva el layout del tamaño actual del modelo.
 func (m Model) renderArtworkPanel() string {
+	return m.renderArtworkPanelAt(computeLayout(m.width, m.height))
+}
+
+// renderArtworkPanelAt dibuja la portada renderizada de la pista actual, o un
+// estado de degradación cuando no hay portada.
+func (m Model) renderArtworkPanelAt(l layout) string {
 	var b strings.Builder
 	b.WriteString(m.styles.heading.Render("Portada"))
 	b.WriteString("\n")
@@ -411,7 +562,7 @@ func (m Model) renderArtworkPanel() string {
 	} else {
 		b.WriteString(m.curArtwork)
 	}
-	return m.styles.panel.Width(28).Render(b.String())
+	return m.styles.panel.Width(l.artW).Render(b.String())
 }
 
 // truncateLines recorta un bloque de texto a maxLines líneas, cada una a maxCols
