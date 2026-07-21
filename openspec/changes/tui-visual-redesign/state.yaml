@@ -1,6 +1,6 @@
 active_change: tui-visual-redesign
 phase: tasks
-status: in_progress
+status: completed
 preflight:
   execution_mode: interactive
   artifact_store: openspec
@@ -21,8 +21,8 @@ completed_phases:
     status: completed
     timestamp: "2026-07-21T00:00:00Z"
   - phase: tasks
-    status: in_progress
-    timestamp: "2026-07-21T12:00:00Z"
+    status: completed
+    timestamp: "2026-07-21T14:00:00Z"
 artifacts:
   - openspec/changes/tui-visual-redesign/exploration.md
   - openspec/changes/tui-visual-redesign/proposal.md
