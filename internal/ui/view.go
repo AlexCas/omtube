@@ -41,6 +41,7 @@ type layout struct {
 	bp                      breakpoint
 	queueW, lyricsW, artW   int // anchos de panel (parámetro de Width)
 	progressW               int // ancho de la barra de progreso
+	bodyH                   int // filas disponibles para la sección media
 	maxQueueRows            int // filas visibles de la cola
 	lyricWindow, plainLines int // ventana de letra sincronizada / plana
 	nowTitleTrunc           int // truncado del título en "ahora suena"
@@ -55,46 +56,70 @@ const minUsable = 40
 // panelBorder son las columnas que el borde redondeado añade fuera de Width().
 const panelBorder = 2
 
+// helpMainText es la línea de ayuda del modo principal. Vive como constante
+// para que computeLayout pueda medir cuántas filas ocupa envuelta al ancho
+// actual (forma parte del chrome vertical de la vista).
+const helpMainText = "/ buscar · u URL · i importar · enter encolar · espacio play/pausa · n/p sig/ant · y letra · C limpiar · f favorito · a +playlist · L biblioteca · q salir"
+
+// helpRows mide cuántas filas ocupa la línea de ayuda envuelta al ancho útil
+// de la terminal, con la misma regla de envoltura que wrapHelp.
+func helpRows(width int) int {
+	maxW := width - 2
+	if maxW <= 0 || lipgloss.Width(helpMainText) <= maxW {
+		return 1
+	}
+	return lipgloss.Height(lipgloss.NewStyle().Width(maxW).Render(helpMainText))
+}
+
 // computeLayout deriva el layout del tamaño actual de la terminal. Es una
-// función pura: mismo (width, height) ⇒ mismo layout. En la Slice 1 solo el
-// ancho gobierna; height alimentará filas/ventanas dinámicas en la Slice 2.
+// función pura: mismo (width, height) ⇒ mismo layout. El ancho gobierna el
+// breakpoint y las columnas; el alto dimensiona la sección media (bodyH) y
+// de ella derivan las filas de cola y las ventanas de letra.
 func computeLayout(width, height int) layout {
 	bp := classify(width)
 	usable := max(width-2, minUsable) // margen exterior de 2 columnas
 
-	// Presupuesto de contenido de la fila central: tres paneles con borde.
-	budget := usable - 3*panelBorder
+	// Chrome vertical medido sobre View(): título con borde (3), separador (1),
+	// ahora-suena (1), separador (1), estado/búsqueda (1), separador (1) antes
+	// de la sección media; y separador (1), ayuda (envuelta, medida aparte),
+	// visualizador (1) y salto final (1) después de ella. Total fijo: 11 filas
+	// más las que ocupe la ayuda al ancho actual.
+	const chromeFixed = 11
+	// minBody es el piso de la sección media: por debajo los paneles ya no se
+	// comprimen más y se acepta que la vista exceda alturas extremas.
+	const minBody = 4
+	bodyH := max(height-(chromeFixed+helpRows(width)), minBody)
 
-	// Porcentajes y clamps por breakpoint. En la Slice 1 la portada sigue
-	// visible también en narrow (ocultarla es Slice 2), así que narrow usa un
-	// reparto de tres columnas con mínimos relajados para no desbordar.
-	var qPct, aPct float64
-	var qMin, lMin, aMin, aMax int
-	switch bp {
-	case bpNarrow:
-		qPct, aPct = 0.34, 0.24
-		qMin, lMin, aMin, aMax = 14, 16, 8, 28
-	case bpMedium:
-		qPct, aPct = 0.34, 0.26
-		qMin, lMin, aMin, aMax = 24, 28, 24, 28
-	default: // bpWide
-		qPct, aPct = 0.30, 0.26
-		qMin, lMin, aMin, aMax = 24, 28, 24, 28
-	}
-	queueW := clamp(int(math.Round(float64(budget)*qPct)), qMin, 40)
-	artW := clamp(int(math.Round(float64(budget)*aPct)), aMin, aMax)
-	// El remanente se pliega en la letra: la suma queda exactamente en budget,
-	// de modo que la fila central nunca excede usable.
-	lyricsW := budget - queueW - artW
-	if lyricsW < lMin {
-		// Devolver columnas desde cola y portada, sin bajar de sus mínimos.
-		if give := min(lMin-lyricsW, queueW-qMin); give > 0 {
-			queueW -= give
-			lyricsW += give
+	var queueW, lyricsW, artW int
+	if bp == bpNarrow {
+		// Dos columnas: la portada se oculta bajo el breakpoint narrow y el
+		// presupuesto se reparte entre cola (~42%) y letra (~58%).
+		budget := usable - 2*panelBorder
+		queueW = clamp(int(math.Round(float64(budget)*0.42)), 24, 40)
+		lyricsW = budget - queueW
+	} else {
+		// Tres columnas con borde. Proporciones por breakpoint: medium
+		// 34/40/26, wide 30/44/26; el remanente de redondeo se pliega en la
+		// letra para que la fila central nunca exceda usable.
+		budget := usable - 3*panelBorder
+		qPct, aPct := 0.34, 0.26
+		if bp == bpWide {
+			qPct = 0.30
 		}
-		if give := min(lMin-lyricsW, artW-aMin); give > 0 {
-			artW -= give
-			lyricsW += give
+		const qMin, lMin, aMin, aMax = 24, 28, 24, 28
+		queueW = clamp(int(math.Round(float64(budget)*qPct)), qMin, 40)
+		artW = clamp(int(math.Round(float64(budget)*aPct)), aMin, aMax)
+		lyricsW = budget - queueW - artW
+		if lyricsW < lMin {
+			// Devolver columnas desde cola y portada, sin bajar de sus mínimos.
+			if give := min(lMin-lyricsW, queueW-qMin); give > 0 {
+				queueW -= give
+				lyricsW += give
+			}
+			if give := min(lMin-lyricsW, artW-aMin); give > 0 {
+				artW -= give
+				lyricsW += give
+			}
 		}
 	}
 
@@ -104,18 +129,31 @@ func computeLayout(width, height int) layout {
 	nowTitleTrunc := max(8, lyricsW-4)
 	progressW := clamp(width-nowDecor-nowTitleTrunc, 8, 40)
 
+	// Filas de la cola: bodyH menos el chrome real del panel (2 de borde,
+	// 1 de encabezado y hasta 2 marcadores ▲/▼), con piso 3 para no colapsar
+	// en alturas chicas. El techo queda en 10 (la ventana histórica): la letra
+	// es la región que crece primero con el alto.
+	maxQueueRows := clamp(bodyH-5, 3, 10)
+	// Ventana de letra sincronizada: bodyH menos borde (2) y encabezado (1),
+	// normalizada a impar para que la línea activa quede centrada.
+	lyricWindow := clamp(bodyH-3, 3, 12)
+	if lyricWindow%2 == 0 {
+		lyricWindow--
+	}
+
 	return layout{
 		bp:            bp,
 		queueW:        queueW,
 		lyricsW:       lyricsW,
 		artW:          artW,
 		progressW:     progressW,
-		maxQueueRows:  10, // dinámico según height en la Slice 2
-		lyricWindow:   7,  // dinámico según height en la Slice 2
-		plainLines:    8,
+		bodyH:         bodyH,
+		maxQueueRows:  maxQueueRows,
+		lyricWindow:   lyricWindow,
+		plainLines:    clamp(bodyH-3, 3, 12),
 		nowTitleTrunc: nowTitleTrunc,
 		libLineTrunc:  max(20, width-4),
-		showArtwork:   bp != bpNarrow, // lo consumirá la Slice 2
+		showArtwork:   bp != bpNarrow,
 	}
 }
 
@@ -345,8 +383,7 @@ func (m Model) isInputMode() bool {
 }
 
 func (m Model) renderHelp() string {
-	return m.wrapHelp(
-		"/ buscar · u URL · i importar · enter encolar · espacio play/pausa · n/p sig/ant · y letra · C limpiar · f favorito · a +playlist · L biblioteca · q salir")
+	return m.wrapHelp(helpMainText)
 }
 
 // wrapHelp aplica el estilo de ayuda y, cuando el texto no cabe en el ancho
@@ -461,20 +498,26 @@ func (m Model) cacheMark(id string) string {
 
 // renderMiddleSection compone la cola y los paneles de enriquecimiento en una
 // fila horizontal. Cuando los servicios de enriquecimiento están apagados (nil)
-// solo se muestra la cola, manteniendo paridad con la Fase 2.
+// solo se muestra la cola, manteniendo paridad con la Fase 2. La banda ocupa
+// las l.bodyH filas de la sección media: PlaceVertical rellena el alto sobrante
+// (alineada arriba) y deja el contenido intacto cuando ya es más alto, de modo
+// que ningún elemento obligatorio se recorta; en alturas chicas los paneles ya
+// llegan encogidos por los clamps de computeLayout.
 func (m Model) renderMiddleSection(l layout) string {
-	queue := m.renderQueueAt(l)
+	band := m.renderQueueAt(l)
 	if enrich := m.renderEnrichment(l); enrich != "" {
-		return lipgloss.JoinHorizontal(lipgloss.Top, queue, enrich)
+		band = lipgloss.JoinHorizontal(lipgloss.Top, band, enrich)
 	}
-	return queue
+	return lipgloss.PlaceVertical(l.bodyH, lipgloss.Top, band)
 }
 
 // renderEnrichment compone los paneles de letra y portada lado a lado. Devuelve
 // "" cuando ninguno de los dos servicios está activo (paridad con la Fase 2).
+// Bajo el breakpoint narrow la portada se oculta (no se encoge ni se mueve),
+// dejando solo cola + letra en dos columnas.
 func (m Model) renderEnrichment(l layout) string {
 	hasLyrics := m.lyrics != nil
-	hasArtwork := m.artwork != nil
+	hasArtwork := m.artwork != nil && l.showArtwork
 	if !hasLyrics && !hasArtwork {
 		return ""
 	}

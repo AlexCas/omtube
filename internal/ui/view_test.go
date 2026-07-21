@@ -22,6 +22,7 @@ func TestViewGolden(t *testing.T) {
 		width  int
 		height int
 	}{
+		{"60x20", 60, 20},
 		{"80x24", 80, 24},
 		{"120x30", 120, 30},
 	}
@@ -81,18 +82,138 @@ func TestStylesNoBackground(t *testing.T) {
 	}
 }
 
+// TestClassifyBoundaries verifica los valores de frontera exactos de los
+// breakpoints del design: narrow < 90 ≤ medium < 120 ≤ wide.
+func TestClassifyBoundaries(t *testing.T) {
+	cases := []struct {
+		width int
+		want  breakpoint
+	}{
+		{59, bpNarrow},
+		{60, bpNarrow},
+		{89, bpNarrow},
+		{90, bpMedium},
+		{119, bpMedium},
+		{120, bpWide},
+	}
+	for _, tc := range cases {
+		if got := classify(tc.width); got != tc.want {
+			t.Errorf("classify(%d) = %v; want %v", tc.width, got, tc.want)
+		}
+	}
+}
+
+// TestComputeLayoutWidths verifica en las mismas fronteras que las columnas no
+// exceden el ancho útil, respetan sus mínimos y que la portada solo existe
+// fuera del breakpoint narrow.
+func TestComputeLayoutWidths(t *testing.T) {
+	const qMin, lMin = 24, 28
+	for _, width := range []int{59, 60, 89, 90, 119, 120} {
+		t.Run(fmt.Sprintf("%dcols", width), func(t *testing.T) {
+			l := computeLayout(width, 24)
+			usable := width - 2
+			if sum := l.queueW + l.lyricsW + l.artW; sum > usable {
+				t.Errorf("columnas exceden el ancho útil: %d > %d", sum, usable)
+			}
+			if l.queueW < qMin {
+				t.Errorf("queueW %d < mínimo %d", l.queueW, qMin)
+			}
+			if l.lyricsW < lMin {
+				t.Errorf("lyricsW %d < mínimo %d", l.lyricsW, lMin)
+			}
+			if l.bp == bpNarrow {
+				if l.artW != 0 || l.showArtwork {
+					t.Errorf("narrow debe ocultar portada: artW=%d showArtwork=%v", l.artW, l.showArtwork)
+				}
+			} else if l.artW <= 0 || !l.showArtwork {
+				t.Errorf("medium/wide deben mostrar portada: artW=%d showArtwork=%v", l.artW, l.showArtwork)
+			}
+		})
+	}
+}
+
+// TestComputeLayoutHeight verifica que las filas de cola y las ventanas de
+// letra derivan del alto: mínimos que no colapsan, ventana impar centrada y
+// crecimiento/encogimiento coherente con la altura disponible.
+func TestComputeLayoutHeight(t *testing.T) {
+	for _, height := range []int{20, 24, 30, 40} {
+		t.Run(fmt.Sprintf("%drows", height), func(t *testing.T) {
+			l := computeLayout(120, height)
+			if l.bodyH < 4 {
+				t.Errorf("bodyH %d < mínimo 4", l.bodyH)
+			}
+			if l.maxQueueRows < 3 {
+				t.Errorf("maxQueueRows %d < mínimo 3", l.maxQueueRows)
+			}
+			if l.lyricWindow < 3 {
+				t.Errorf("lyricWindow %d < mínimo 3", l.lyricWindow)
+			}
+			if l.lyricWindow%2 != 1 {
+				t.Errorf("lyricWindow %d debe ser impar", l.lyricWindow)
+			}
+			if l.plainLines < 3 {
+				t.Errorf("plainLines %d < mínimo 3", l.plainLines)
+			}
+			switch height {
+			case 20:
+				if l.maxQueueRows >= 10 {
+					t.Errorf("a 20 filas la cola debe reducirse: maxQueueRows=%d", l.maxQueueRows)
+				}
+			case 30:
+				if l.maxQueueRows < 8 {
+					t.Errorf("a 30 filas la cola debe expandirse: maxQueueRows=%d", l.maxQueueRows)
+				}
+			}
+		})
+	}
+}
+
+// Test60x20NarrowNoArtwork verifica el escenario "Narrow breakpoint hides
+// artwork": a 60×20, con servicios de letra y portada activos, la portada no
+// se dibuja y cola + letra siguen presentes.
+func Test60x20NarrowNoArtwork(t *testing.T) {
+	m := newTestModel(t, Services{
+		Lyrics:  fakeLyrics{},
+		Artwork: fakeArtwork{art: "ART"},
+	})
+	m.width, m.height = 60, 20
+	m.queue.Add(search.Result{ID: "a", Title: "Alpha Song"})
+	m.curTrackID = "a"
+	m.curLyrics = lyrics.Lyrics{Plain: "Line one\nLine two"}
+	m.curArtwork = "ASCII ART"
+
+	out := m.View()
+	if strings.Contains(out, "Portada") || strings.Contains(out, "ASCII ART") {
+		t.Errorf("narrow no debe mostrar el panel de portada; got:\n%s", out)
+	}
+	if !strings.Contains(out, "Cola") {
+		t.Errorf("la cola debe seguir presente en narrow; got:\n%s", out)
+	}
+	if !strings.Contains(out, "Letra") {
+		t.Errorf("la letra debe seguir presente en narrow; got:\n%s", out)
+	}
+}
+
 // TestNoLineExceedsWidth verifica el escenario "No rendered line exceeds
-// terminal width" en 60, 80 y 120 columnas, con títulos y letra largos para
-// forzar los truncados fluidos.
+// terminal width" en 60, 80 y 120 columnas (incluida la combinación 60×20 del
+// breakpoint narrow), con títulos y letra largos para forzar los truncados.
 func TestNoLineExceedsWidth(t *testing.T) {
 	longTitle := strings.Repeat("Título Muy Largo ", 8)
-	for _, width := range []int{60, 80, 120} {
-		t.Run(fmt.Sprintf("%dcols", width), func(t *testing.T) {
+	sizes := []struct{ width, height int }{
+		{60, 20},
+		{60, 24},
+		{80, 24},
+		{120, 24},
+		{120, 30},
+	}
+	for _, size := range sizes {
+		width := size.width
+		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
 			m := newTestModel(t, Services{
 				Lyrics:  fakeLyrics{},
 				Artwork: fakeArtwork{art: "ART"},
 			})
-			m.width, m.height = width, 24
+			m.width, m.height = size.width, size.height
 			m.queue.Add(search.Result{ID: "a", Title: longTitle, Uploader: "Artista"})
 			for i := 0; i < 20; i++ {
 				m.queue.Add(search.Result{ID: fmt.Sprintf("v%02d", i), Title: longTitle})
@@ -116,16 +237,25 @@ func TestNoLineExceedsWidth(t *testing.T) {
 	}
 }
 
-// TestGoldensDiffer verifica el escenario "80×24 and 120×30 goldens differ":
-// tras el rediseño responsivo ambos fixtures no pueden ser idénticos.
+// TestGoldensDiffer verifica los escenarios "80×24 and 120×30 goldens differ"
+// y "Breakpoints render distinct deterministic layouts": los tres fixtures
+// responsivos deben diferir entre sí por pares.
 func TestGoldensDiffer(t *testing.T) {
-	want80, err80 := os.ReadFile(filepath.Join("testdata", "view_80x24.golden"))
-	want120, err120 := os.ReadFile(filepath.Join("testdata", "view_120x30.golden"))
-	if err80 != nil || err120 != nil {
-		t.Skipf("goldens ausentes; regenera con UPDATE_GOLDEN=1 (%v, %v)", err80, err120)
+	names := []string{"view_60x20.golden", "view_80x24.golden", "view_120x30.golden"}
+	goldens := make([][]byte, len(names))
+	for i, name := range names {
+		data, err := os.ReadFile(filepath.Join("testdata", name))
+		if err != nil {
+			t.Skipf("golden ausente; regenera con UPDATE_GOLDEN=1 (%v)", err)
+		}
+		goldens[i] = data
 	}
-	if bytes.Equal(want80, want120) {
-		t.Fatal("view_80x24.golden y view_120x30.golden no deben ser byte-idénticos")
+	for i := 0; i < len(names); i++ {
+		for j := i + 1; j < len(names); j++ {
+			if bytes.Equal(goldens[i], goldens[j]) {
+				t.Errorf("%s y %s no deben ser byte-idénticos", names[i], names[j])
+			}
+		}
 	}
 }
 
