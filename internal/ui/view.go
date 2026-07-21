@@ -143,9 +143,9 @@ func computeLayout(width, height int) layout {
 
 	// Filas de la cola (design D2b): sidebarH menos el chrome real del panel
 	// (2 de borde, 1 de encabezado y hasta 2 marcadores ▲/▼ = 5 filas). Sin
-	// techo fijo: la ventana crece con la altura de la terminal.
+	// techo fijo, con techo duro en el interior de la caja (fillBoxHeight).
 	const queueChrome = 5
-	maxQueueRows := clamp(sidebarH-queueChrome, 3, sidebarH)
+	maxQueueRows := clamp(sidebarH-queueChrome, 3, max(sidebarH-panelBorder-1, 3))
 	// Ventana de letra sincronizada (design D2c): mainH menos el chrome del
 	// intermedio del slice 1 — borde de la caja main (2) + borde del subpanel
 	// de letra (2) + encabezado (1) = 5 —, sin techo fijo y normalizada a
@@ -352,8 +352,15 @@ func (m Model) queueBody(l layout) string {
 		return b.String()
 	}
 
+	// Los marcadores ▲/▼ solo se dibujan si caben en el interior de la caja;
+	// se omiten antes que filas de pista (fila ▶ visible: Parity @slice1).
 	start, end := queueWindow(m.queue.Index(), total, l.maxQueueRows)
-	if start > 0 {
+	free := l.sidebarH - panelBorder - 1 - (end - start)
+	showDown := end < total && free > 0
+	if showDown {
+		free--
+	}
+	if start > 0 && free > 0 {
 		b.WriteString(m.styles.dim.Render(fmt.Sprintf("  ▲ %d más", start)))
 		b.WriteString("\n")
 	}
@@ -368,7 +375,7 @@ func (m Model) queueBody(l layout) string {
 		b.WriteString(m.cacheMark(r.ID) + prefix + truncate(line, l.queueW-6))
 		b.WriteString("\n")
 	}
-	if end < total {
+	if showDown {
 		b.WriteString(m.styles.dim.Render(fmt.Sprintf("  ▼ %d más", total-end)))
 	}
 	return strings.TrimSuffix(b.String(), "\n")

@@ -236,6 +236,27 @@ func TestComputeLayoutHeight(t *testing.T) {
 	}
 }
 
+// TestQueueCurrentVisibleLongQueue60x20 verifica Element Parity (@slice1) con
+// cola larga: a 60×20 con 30 pistas y la actual en el medio, la fila ▶ actual
+// sobrevive (marcadores ▲/▼ omitidos antes que filas) y quedan ≥3 filas.
+func TestQueueCurrentVisibleLongQueue60x20(t *testing.T) {
+	m := newTestModel(t, Services{Lyrics: fakeLyrics{}, Artwork: fakeArtwork{art: "ART"}})
+	m.width, m.height = 60, 20
+	for i := 0; i < 30; i++ {
+		m.queue.Add(search.Result{ID: fmt.Sprintf("t%02d", i), Title: fmt.Sprintf("Track %02d", i)})
+	}
+	for i := 0; i < 15; i++ {
+		m.queue.Next()
+	}
+	sidebar := m.renderSidebar(computeLayout(m.width, m.height))
+	if !strings.Contains(sidebar, "▶ Track 15") {
+		t.Errorf("la fila ▶ de la pista actual (Track 15) debe verse en la sidebar:\n%s", sidebar)
+	}
+	if rows := strings.Count(sidebar, "Track "); rows < 3 {
+		t.Errorf("la ventana de cola debe conservar ≥3 filas de pista; got %d:\n%s", rows, sidebar)
+	}
+}
+
 // Test60x20NarrowNoArtwork verifica el escenario "Narrow breakpoint hides
 // artwork": a 60×20, con servicios de letra y portada activos, la portada no
 // se dibuja y cola + letra siguen presentes.
