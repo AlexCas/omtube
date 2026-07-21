@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/alexcasdev/terminaltube/internal/lyrics"
@@ -257,6 +258,150 @@ func TestGoldensDiffer(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestCaelestiaAccentColors verifica el escenario "All colors match Caelestia
+// palette": afirma los colores hexadecimales de la paleta por nombre sobre los
+// estilos de defaultStyles(), independiente de los goldens (cierra Obs-1).
+func TestCaelestiaAccentColors(t *testing.T) {
+	s := defaultStyles()
+	cases := []struct {
+		name  string
+		color lipgloss.Color
+	}{
+		{"accent mauve (heading/border/viz/errorMsg/selected-border)", "#e0aaff"},
+		{"highlight teal (selected/current)", "#00f5d4"},
+		{"muted (dim/help)", "#a0a0a0"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			switch tc.color {
+			case "#e0aaff":
+				if s.heading.GetForeground() != lipgloss.Color("#e0aaff") {
+					t.Errorf("heading foreground no es mauve: %v", s.heading.GetForeground())
+				}
+				if s.title.GetForeground() != lipgloss.Color("#e0aaff") {
+					t.Errorf("title foreground no es mauve: %v", s.title.GetForeground())
+				}
+				if s.viz.GetForeground() != lipgloss.Color("#e0aaff") {
+					t.Errorf("viz foreground no es mauve: %v", s.viz.GetForeground())
+				}
+				if s.errorMsg.GetForeground() != lipgloss.Color("#e0aaff") {
+					t.Errorf("errorMsg foreground no es mauve: %v", s.errorMsg.GetForeground())
+				}
+			case "#00f5d4":
+				if s.selected.GetForeground() != lipgloss.Color("#00f5d4") {
+					t.Errorf("selected foreground no es teal: %v", s.selected.GetForeground())
+				}
+				if s.current.GetForeground() != lipgloss.Color("#00f5d4") {
+					t.Errorf("current foreground no es teal: %v", s.current.GetForeground())
+				}
+			case "#a0a0a0":
+				if s.dim.GetForeground() != lipgloss.Color("#a0a0a0") {
+					t.Errorf("dim foreground no es muted: %v", s.dim.GetForeground())
+				}
+				if s.help.GetForeground() != lipgloss.Color("#a0a0a0") {
+					t.Errorf("help foreground no es muted: %v", s.help.GetForeground())
+				}
+			}
+		})
+	}
+}
+
+// TestDelegateNoBackground extiende el assert de translucidez al delegate de
+// los modales (escenario "Modals, library, and pickers preserved and
+// translucent"): ningún subestilo del delegate ni el título tematizado del
+// list pueden definir un Background opaco.
+func TestDelegateNoBackground(t *testing.T) {
+	d := caelestiaListDelegate()
+	checks := []struct {
+		name  string
+		style lipgloss.Style
+	}{
+		{"NormalTitle", d.Styles.NormalTitle},
+		{"NormalDesc", d.Styles.NormalDesc},
+		{"SelectedTitle", d.Styles.SelectedTitle},
+		{"SelectedDesc", d.Styles.SelectedDesc},
+		{"DimmedTitle", d.Styles.DimmedTitle},
+		{"DimmedDesc", d.Styles.DimmedDesc},
+	}
+	for _, c := range checks {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			if !hasNoBackground(c.style) {
+				t.Errorf("delegate.%s no debe definir Background; got %#v",
+					c.name, c.style.GetBackground())
+			}
+		})
+	}
+	// La barra de título tematizada tampoco: themedList debe reemplazar el
+	// Background("62") que el DefaultStyles de bubbles/list trae por defecto.
+	themed := themedList(list.New(nil, list.NewDefaultDelegate(), 0, 0))
+	if !hasNoBackground(themed.Styles.Title) {
+		t.Errorf("list.Styles.Title tematizado no debe definir Background; got %#v",
+			themed.Styles.Title.GetBackground())
+	}
+	if themed.Styles.Title.GetForeground() != lipgloss.Color("#e0aaff") {
+		t.Errorf("list.Styles.Title debe usar foreground mauve; got %v",
+			themed.Styles.Title.GetForeground())
+	}
+}
+
+// TestLibraryViewIsTranslucent verifica la rama library del escenario
+// "Modals, library, and pickers preserved and translucent": los ítems y el
+// cursor ➤ están presentes y los estilos de selección no definen Background
+// (la selección se distingue por color/negrita/prefijo, no por relleno).
+func TestLibraryViewIsTranslucent(t *testing.T) {
+	m := newTestModel(t, Services{})
+	m.mode = modeLibrary
+	m.libSection = sectionFavorites
+	m.libFavorites = []search.Result{
+		{ID: "a", Title: "Canción A", Uploader: "Artista A"},
+		{ID: "b", Title: "Canción B", Uploader: "Artista B"},
+	}
+	m.libCursor = 0
+	out := m.View()
+	if !strings.Contains(out, "Canción A") {
+		t.Errorf("biblioteca debe mostrar los ítems; got:\n%s", out)
+	}
+	if !strings.Contains(out, "➤") {
+		t.Errorf("biblioteca debe mostrar el cursor ➤; got:\n%s", out)
+	}
+	// Verificar que los estilos de selección no tienen Background.
+	if !hasNoBackground(m.styles.selected) {
+		t.Errorf("styles.selected no debe definir Background")
+	}
+	if !hasNoBackground(m.styles.dim) {
+		t.Errorf("styles.dim no debe definir Background")
+	}
+}
+
+// TestResultsModalGolden bloquea el render del modal de resultados a 120×30
+// con el delegate Caelestia, para detectar regresiones visuales del modal.
+func TestResultsModalGolden(t *testing.T) {
+	m := newTestModel(t, Services{})
+	m.mode = modeResults
+	m.width, m.height = 120, 30
+	// Mismo dimensionado que aplica Update ante tea.WindowSizeMsg (alto - 4).
+	m.resultsList.SetSize(120, 26)
+	items := []list.Item{
+		resultItem{r: search.Result{ID: "a", Title: "Canción A", Uploader: "Artista A"}},
+		resultItem{r: search.Result{ID: "b", Title: "Canción B", Uploader: "Artista B"}},
+		resultItem{r: search.Result{ID: "c", Title: "Canción C", Uploader: "Artista C"}},
+		resultItem{r: search.Result{ID: "d", Title: "Canción D", Uploader: "Artista D"}},
+		resultItem{r: search.Result{ID: "e", Title: "Canción E", Uploader: "Artista E"}},
+	}
+	m.resultsList.SetItems(items)
+	// themedList explícito para ejercer el mismo path que View() en modeResults.
+	m.resultsList = themedList(m.resultsList)
+	out := m.View()
+	for i, line := range strings.Split(out, "\n") {
+		if w := lipgloss.Width(line); w > 120 {
+			t.Errorf("línea %d del modal excede 120 columnas: %d\n%q", i, w, line)
+		}
+	}
+	compareGolden(t, filepath.Join("testdata", "view_results_120x30.golden"), out)
 }
 
 // compareGolden lee un archivo golden y lo compara con el valor actual. Si la

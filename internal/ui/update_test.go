@@ -532,15 +532,16 @@ func TestRenderQueueWindowsLongQueue(t *testing.T) {
 	if !strings.Contains(out, "Cola (100)") {
 		t.Fatalf("esperaba el total en el encabezado; got:\n%s", out)
 	}
-	// Desde el inicio (idx 0): se muestran 10 y el resto se indica con el marcador.
-	if !strings.Contains(out, "▼ 90 más") {
-		t.Fatalf("esperaba marcador '▼ 90 más'; got:\n%s", out)
+	// Desde el inicio (idx 0): con height=40 maxQueueRows=20 se muestran 20
+	// filas y el resto se indica con el marcador de desbordamiento.
+	if !strings.Contains(out, "▼ 80 más") {
+		t.Fatalf("esperaba marcador '▼ 80 más'; got:\n%s", out)
 	}
 	if strings.Contains(out, "Track 050") {
 		t.Fatalf("una pista fuera de la ventana no debería renderizarse; got:\n%s", out)
 	}
 	// El panel no debe crecer sin control: muy por debajo de las 100 filas.
-	if n := strings.Count(out, "\n"); n > 20 {
+	if n := strings.Count(out, "\n"); n > 30 {
 		t.Fatalf("el panel de cola creció demasiado: %d líneas", n)
 	}
 }
