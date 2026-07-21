@@ -18,12 +18,10 @@ func defaultStyles() styles {
 	return styles{
 		title: lipgloss.NewStyle().Bold(true).
 			Foreground(lipgloss.Color("#e0aaff")).
-			Background(lipgloss.Color("#1a1a2e")).
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("#e0aaff")).
 			Padding(0, 1),
 		panel: lipgloss.NewStyle().
-			Background(lipgloss.Color("#1a1a2e")).
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("#e0aaff")).
 			Padding(0, 1),
