@@ -1,7 +1,7 @@
 active_change: tui-sidebar-redesign
-phase: judge
+phase: archive
 status: completed
-slice_progress: "ALL 3 SLICES CLEARED (judge PASS). Awaiting: commit openspec artifacts + push + 3 chained PRs, then archive."
+slice_progress: "ALL 3 SLICES CLEARED (judge PASS). PRs #26/#29 MERGED to master. Archive complete."
 judge_retries: 0
 slices:
   slice1: {status: cleared, branch: feat/tui-sidebar-redesign-slice1, head: 5196992, judge: pass}
@@ -164,14 +164,26 @@ history:
     status: completed
     timestamp: "2026-07-21T16:57:00Z"
     note: "slice 3 of 3 — PASS; whole change cleared for archive. FLAG: openspec artifacts untracked in git."
+  - phase: archive
+    status: in_progress
+    timestamp: "2026-07-21T17:30:00Z"
+    note: "Moving change dir, syncing baseline spec, reconciling translucency palette"
+  - phase: archive
+    status: completed
+    timestamp: "2026-07-21T17:45:00Z"
+    note: "Archive complete: PRs #26 (slice 1) + #29 (slices 2+3 consolidated recovery) merged; caelestia-ui baseline synced with sidebar/footer/accent/nav/library requirements; palette reconciled (translucent, no Background); all artifacts moved"
 artifacts:
-  - openspec/changes/tui-sidebar-redesign/exploration.md
-  - openspec/changes/tui-sidebar-redesign/proposal.md
-  - openspec/changes/tui-sidebar-redesign/state.yaml
-  - openspec/changes/tui-sidebar-redesign/specs/caelestia-ui/spec.md
-  - openspec/changes/tui-sidebar-redesign/specs/caelestia-ui/caelestia-ui.feature
-  - openspec/changes/tui-sidebar-redesign/design.md
-next_phase: tasks
+  - openspec/changes/archive/2026-07-21-tui-sidebar-redesign/exploration.md
+  - openspec/changes/archive/2026-07-21-tui-sidebar-redesign/proposal.md
+  - openspec/changes/archive/2026-07-21-tui-sidebar-redesign/state.yaml
+  - openspec/changes/archive/2026-07-21-tui-sidebar-redesign/specs/caelestia-ui/spec.md
+  - openspec/changes/archive/2026-07-21-tui-sidebar-redesign/specs/caelestia-ui/caelestia-ui.feature
+  - openspec/changes/archive/2026-07-21-tui-sidebar-redesign/design.md
+  - openspec/changes/archive/2026-07-21-tui-sidebar-redesign/archive-report.md
+  - openspec/changes/archive/2026-07-21-tui-sidebar-redesign/verify-report.md
+  - openspec/changes/archive/2026-07-21-tui-sidebar-redesign/tasks.md
+  - openspec/changes/archive/2026-07-21-tui-sidebar-redesign/SESSION_STATUS.md
+next_phase: complete
 open_questions: []
 resolved_decisions:
   - "Now-playing: footer card (Option B)."
