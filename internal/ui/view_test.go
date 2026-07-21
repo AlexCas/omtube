@@ -26,6 +26,7 @@ func TestViewGolden(t *testing.T) {
 		{"60x20", 60, 20},
 		{"80x24", 80, 24},
 		{"120x30", 120, 30},
+		{"120x40", 120, 40},
 	}
 
 	for _, tc := range cases {
@@ -104,23 +105,31 @@ func TestClassifyBoundaries(t *testing.T) {
 	}
 }
 
-// TestComputeLayoutWidths verifica en las mismas fronteras que las columnas no
-// exceden el ancho útil, respetan sus mínimos y que la portada solo existe
-// fuera del breakpoint narrow.
+// TestComputeLayoutWidths verifica en las fronteras de breakpoint la división
+// principal sidebar | main (design D1): el invariante de suma exacta D1d, los
+// mínimos de rail/sidebar, que main nunca colapsa y que slimRail y la portada
+// siguen al breakpoint narrow.
 func TestComputeLayoutWidths(t *testing.T) {
-	const qMin, lMin = 24, 28
+	const railMin, sbMin = 16, 26
 	for _, width := range []int{59, 60, 89, 90, 119, 120} {
 		t.Run(fmt.Sprintf("%dcols", width), func(t *testing.T) {
 			l := computeLayout(width, 24)
-			usable := width - 2
-			if sum := l.queueW + l.lyricsW + l.artW; sum > usable {
-				t.Errorf("columnas exceden el ancho útil: %d > %d", sum, usable)
+			usable := max(width-2, minUsable)
+			if got := l.sidebarW + l.mainW + 2*panelBorder; got != usable {
+				t.Errorf("sidebarW+mainW+2*panelBorder = %d; want usable %d", got, usable)
 			}
-			if l.queueW < qMin {
-				t.Errorf("queueW %d < mínimo %d", l.queueW, qMin)
+			if l.mainW <= 0 {
+				t.Errorf("mainW %d debe ser positivo", l.mainW)
 			}
-			if l.lyricsW < lMin {
-				t.Errorf("lyricsW %d < mínimo %d", l.lyricsW, lMin)
+			if wantRail := l.bp == bpNarrow; l.slimRail != wantRail {
+				t.Errorf("slimRail = %v; want %v (bp=%v)", l.slimRail, wantRail, l.bp)
+			}
+			if l.slimRail {
+				if l.sidebarW < railMin {
+					t.Errorf("sidebarW %d < mínimo de rail %d", l.sidebarW, railMin)
+				}
+			} else if l.sidebarW < sbMin {
+				t.Errorf("sidebarW %d < mínimo %d", l.sidebarW, sbMin)
 			}
 			if l.bp == bpNarrow {
 				if l.artW != 0 || l.showArtwork {
@@ -133,15 +142,20 @@ func TestComputeLayoutWidths(t *testing.T) {
 	}
 }
 
-// TestComputeLayoutHeight verifica que las filas de cola y las ventanas de
-// letra derivan del alto: mínimos que no colapsan, ventana impar centrada y
-// crecimiento/encogimiento coherente con la altura disponible.
+// TestComputeLayoutHeight verifica que las alturas de columna igualan bodyH
+// (design D2a) y que las ventanas de cola y letra derivan del alto sin los
+// techos fijos históricos de 20/12 (design D2b–D2d): mínimos que no colapsan,
+// ventana impar centrada y crecimiento coherente con la altura disponible.
 func TestComputeLayoutHeight(t *testing.T) {
 	for _, height := range []int{20, 24, 30, 40} {
 		t.Run(fmt.Sprintf("%drows", height), func(t *testing.T) {
 			l := computeLayout(120, height)
 			if l.bodyH < 4 {
 				t.Errorf("bodyH %d < mínimo 4", l.bodyH)
+			}
+			if l.sidebarH != l.bodyH || l.mainH != l.bodyH {
+				t.Errorf("sidebarH/mainH = %d/%d; ambos deben igualar bodyH %d",
+					l.sidebarH, l.mainH, l.bodyH)
 			}
 			if l.maxQueueRows < 3 {
 				t.Errorf("maxQueueRows %d < mínimo 3", l.maxQueueRows)
@@ -161,8 +175,22 @@ func TestComputeLayoutHeight(t *testing.T) {
 					t.Errorf("a 20 filas la cola debe reducirse: maxQueueRows=%d", l.maxQueueRows)
 				}
 			case 30:
-				if l.maxQueueRows < 8 {
+				if l.maxQueueRows < 12 {
 					t.Errorf("a 30 filas la cola debe expandirse: maxQueueRows=%d", l.maxQueueRows)
+				}
+			case 40:
+				// Techos levantados: la cola supera el antiguo tope de 20 y la
+				// letra el antiguo tope de 12; la cola puede crecer más que la
+				// ventana de letra.
+				if l.maxQueueRows <= 20 {
+					t.Errorf("a 40 filas la cola debe superar el antiguo techo de 20: maxQueueRows=%d", l.maxQueueRows)
+				}
+				if l.lyricWindow <= 12 {
+					t.Errorf("a 40 filas la letra debe superar el antiguo techo de 12: lyricWindow=%d", l.lyricWindow)
+				}
+				if l.maxQueueRows <= l.lyricWindow {
+					t.Errorf("a 40 filas la cola debe crecer más que la letra: maxQueueRows=%d lyricWindow=%d",
+						l.maxQueueRows, l.lyricWindow)
 				}
 			}
 		})
@@ -206,6 +234,7 @@ func TestNoLineExceedsWidth(t *testing.T) {
 		{80, 24},
 		{120, 24},
 		{120, 30},
+		{120, 40},
 	}
 	for _, size := range sizes {
 		width := size.width
@@ -239,10 +268,11 @@ func TestNoLineExceedsWidth(t *testing.T) {
 }
 
 // TestGoldensDiffer verifica los escenarios "80×24 and 120×30 goldens differ"
-// y "Breakpoints render distinct deterministic layouts": los tres fixtures
-// responsivos deben diferir entre sí por pares.
+// y "Breakpoints render distinct deterministic layouts": los cuatro fixtures
+// responsivos deben diferir entre sí por pares (el 120×40 añade la variación
+// solo-en-alto del mismo breakpoint wide).
 func TestGoldensDiffer(t *testing.T) {
-	names := []string{"view_60x20.golden", "view_80x24.golden", "view_120x30.golden"}
+	names := []string{"view_60x20.golden", "view_80x24.golden", "view_120x30.golden", "view_120x40.golden"}
 	goldens := make([][]byte, len(names))
 	for i, name := range names {
 		data, err := os.ReadFile(filepath.Join("testdata", name))
@@ -256,6 +286,36 @@ func TestGoldensDiffer(t *testing.T) {
 			if bytes.Equal(goldens[i], goldens[j]) {
 				t.Errorf("%s y %s no deben ser byte-idénticos", names[i], names[j])
 			}
+		}
+	}
+}
+
+// TestNoBlankBodyBand verifica el escenario "No blank vertical band at
+// 120x40": las dos columnas del cuerpo (sidebar y main) llegan forzadas a
+// bodyH filas, así que ninguna fila del cuerpo puede quedar totalmente en
+// blanco entre el chrome superior y la ayuda (toda fila contiene al menos un
+// glifo de borde o contenido).
+func TestNoBlankBodyBand(t *testing.T) {
+	m := newTestModel(t, Services{
+		Lyrics:  fakeLyrics{},
+		Artwork: fakeArtwork{art: "ART"},
+	})
+	m.width, m.height = 120, 40
+	m.queue.Add(search.Result{ID: "a", Title: "Alpha Song", Uploader: "Alpha Artist"})
+	m.curTrackID = "a"
+	m.curArtwork = "ASCII ART"
+	out := m.View()
+	lines := strings.Split(out, "\n")
+	// Chrome superior: título (3), separador, ahora-suena, separador, estado,
+	// separador = 8 filas antes del cuerpo. Chrome inferior: separador, ayuda
+	// envuelta (2 a 120 cols), visualizador y línea final = 5 filas.
+	bodyStart, bodyEnd := 8, len(lines)-5
+	if bodyEnd <= bodyStart {
+		t.Fatalf("salida demasiado corta para aislar el cuerpo: %d líneas", len(lines))
+	}
+	for i := bodyStart; i < bodyEnd && i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "" {
+			t.Errorf("fila %d del cuerpo totalmente en blanco: banda vacía en la sección media", i)
 		}
 	}
 }

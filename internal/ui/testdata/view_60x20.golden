@@ -2,16 +2,18 @@
                        │ 🎵 Omusic │                        
                        ╰───────────╯                        
                                                             
-        ▶ Alpha Song  ━━────────  0:45/3:00  vol 70         
+         ▶ Alpha Song  ━━──────  0:45/3:00  vol 70          
                                                             
             Pulsa / para buscar · L biblioteca.             
                                                             
- ╭────────────────────────╮╭──────────────────────────────╮ 
- │ Cola (2)               ││ Letra                        │ 
- │   ▶ Alpha Song         ││ Line one                     │ 
- │     Beta Track         ││ Line two                     │ 
- │                        ││ Line three                   │ 
- ╰────────────────────────╯╰──────────────────────────────╯ 
+ ╭────────────────╮╭──────────────────────────────────────╮ 
+ │ Cola (2)       ││ ╭──────────────────────────────────╮ │ 
+ │   ▶ Alpha Song ││ │ Letra                            │ │ 
+ │     Beta Track ││ │ Line one                         │ │ 
+ │                ││ │ Line two                         │ │ 
+ ╰────────────────╯│ │ Line three                       │ │ 
+                   │ ╰──────────────────────────────────╯ │ 
+                   ╰──────────────────────────────────────╯ 
                                                             
  / buscar · u URL · i importar · enter encolar · espacio    
  play/pausa · n/p sig/ant · y letra · C limpiar · f         

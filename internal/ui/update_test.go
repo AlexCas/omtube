@@ -46,8 +46,8 @@ func (f *fakePlayer) LoadTrack(src string, t search.Result) error {
 func (f *fakePlayer) TogglePause() error           { f.paused = !f.paused; return nil }
 func (f *fakePlayer) Stop() error                  { f.stopped++; f.paused = false; return nil }
 func (f *fakePlayer) AddVolume(d int) (int, error) { f.volume += d; return f.volume, nil }
-func (f *fakePlayer) Seek(offset float64) error       { f.pos += offset; return nil }
-func (f *fakePlayer) Position() (float64, float64)   { return f.pos, f.du }
+func (f *fakePlayer) Seek(offset float64) error    { f.pos += offset; return nil }
+func (f *fakePlayer) Position() (float64, float64) { return f.pos, f.du }
 func (f *fakePlayer) Paused() bool                 { return f.paused }
 func (f *fakePlayer) Volume() int                  { return f.volume }
 func (f *fakePlayer) Events() <-chan player.Event  { return f.events }
@@ -119,12 +119,12 @@ func (p *fakePresence) Clear()                   { p.clear++ }
 
 // fakeMpris registra las llamadas a los métodos del servicio MPRIS.
 type fakeMpris struct {
-	mu              sync.Mutex
-	metadataCalls   int
-	statusCalls     []string
-	volumeCalls     []int
-	positionCalls   []float64
-	seekedCalls     []int64
+	mu            sync.Mutex
+	metadataCalls int
+	statusCalls   []string
+	volumeCalls   []int
+	positionCalls []float64
+	seekedCalls   []int64
 }
 
 func (f *fakeMpris) SetMetadata(track search.Result, lyrics lyrics.Lyrics) {
@@ -532,10 +532,13 @@ func TestRenderQueueWindowsLongQueue(t *testing.T) {
 	if !strings.Contains(out, "Cola (100)") {
 		t.Fatalf("esperaba el total en el encabezado; got:\n%s", out)
 	}
-	// Desde el inicio (idx 0): con height=40 maxQueueRows=20 se muestran 20
-	// filas y el resto se indica con el marcador de desbordamiento.
-	if !strings.Contains(out, "▼ 80 más") {
-		t.Fatalf("esperaba marcador '▼ 80 más'; got:\n%s", out)
+	// Desde el inicio (idx 0) se muestran maxQueueRows filas (derivadas del
+	// alto, sin techo fijo) y el resto se indica con el marcador de
+	// desbordamiento.
+	l := computeLayout(m.width, m.height)
+	marker := fmt.Sprintf("▼ %d más", 100-l.maxQueueRows)
+	if !strings.Contains(out, marker) {
+		t.Fatalf("esperaba marcador %q; got:\n%s", marker, out)
 	}
 	if strings.Contains(out, "Track 050") {
 		t.Fatalf("una pista fuera de la ventana no debería renderizarse; got:\n%s", out)
