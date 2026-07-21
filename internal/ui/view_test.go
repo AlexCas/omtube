@@ -51,6 +51,45 @@ func TestViewGolden(t *testing.T) {
 	}
 }
 
+// TestBodyFitsHeight verifica el invariante de Layout Resilience (@slice1): la
+// vista compuesta nunca excede el alto de la terminal en los cuatro tamaños de
+// los goldens. Guarda en particular el caso 60×20, donde el subpanel de letra
+// (con su chrome propio de borde y encabezado) podía hacer crecer la caja main
+// por encima de bodyH y desplazar el visualizador fuera de pantalla.
+func TestBodyFitsHeight(t *testing.T) {
+	cases := []struct {
+		name   string
+		width  int
+		height int
+	}{
+		{"60x20", 60, 20},
+		{"80x24", 80, 24},
+		{"120x30", 120, 30},
+		{"120x40", 120, 40},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTestModel(t, Services{
+				Lyrics:  fakeLyrics{},
+				Artwork: fakeArtwork{art: "ART"},
+			})
+			m.width, m.height = tc.width, tc.height
+			m.queue.Add(search.Result{ID: "a", Title: "Alpha Song", Uploader: "Alpha Artist"})
+			m.queue.Add(search.Result{ID: "b", Title: "Beta Track", Uploader: "Beta Artist"})
+			m.curTrackID = "a"
+			m.curLyrics = lyrics.Lyrics{Plain: "Line one\nLine two\nLine three"}
+			m.curArtwork = "ASCII ART"
+			m.pos = 45
+			m.dur = 180
+
+			if got := lipgloss.Height(m.View()); got > m.height {
+				t.Errorf("View() mide %d filas; debe caber en la terminal de %d", got, m.height)
+			}
+		})
+	}
+}
+
 // hasNoBackground informa si el estilo no define ningún color de fondo. En
 // lipgloss v1 un Background sin definir se lee como NoColor{}; se acepta
 // también Color("") como valor vacío equivalente.

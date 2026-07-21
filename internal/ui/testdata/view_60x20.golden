@@ -11,9 +11,7 @@
  │   ▶ Alpha Song ││ │ Letra                            │ │ 
  │     Beta Track ││ │ Line one                         │ │ 
  │                ││ │ Line two                         │ │ 
- ╰────────────────╯│ │ Line three                       │ │ 
-                   │ ╰──────────────────────────────────╯ │ 
-                   ╰──────────────────────────────────────╯ 
+ ╰────────────────╯╰──────────────────────────────────────╯ 
                                                             
  / buscar · u URL · i importar · enter encolar · espacio    
  play/pausa · n/p sig/ant · y letra · C limpiar · f         

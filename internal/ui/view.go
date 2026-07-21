@@ -557,11 +557,20 @@ func (m Model) renderMiddleSection(l layout) string {
 
 // fillBoxHeight fuerza una caja con borde a ocupar exactamente rows filas en
 // total (design D6): Height fija el bloque interior a rows-panelBorder y el
-// borde inferior aterriza en la última fila. Si Height no rellenara (fallback
-// documentado en el design), PlaceVertical completa el alto restante; el
-// assert de banda-en-blanco de las pruebas vigila este camino.
+// borde inferior aterriza en la última fila. Height rellena contenido corto
+// pero NO encoge contenido más alto que su objetivo, así que un contenido que
+// exceda las filas interiores (p.ej. el subpanel de letra con su chrome propio
+// cuando bodyH toca el piso) se recorta ANTES de renderizar: la caja nunca
+// crece más allá de rows y la vista compuesta no desborda la terminal (design
+// D6 / Layout Resilience: recortar en vez de crecer). Si Height no rellenara
+// (fallback documentado en el design), PlaceVertical completa el alto
+// restante; el assert de banda-en-blanco de las pruebas vigila este camino.
 func fillBoxHeight(box lipgloss.Style, w, rows int, content string) string {
-	out := box.Width(w).Height(rows - panelBorder).Render(content)
+	inner := rows - panelBorder
+	if lines := strings.Split(content, "\n"); len(lines) > inner {
+		content = strings.Join(lines[:inner], "\n")
+	}
+	out := box.Width(w).Height(inner).Render(content)
 	if lipgloss.Height(out) < rows {
 		out = lipgloss.PlaceVertical(rows, lipgloss.Top, out)
 	}
