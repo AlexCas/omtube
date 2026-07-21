@@ -1,0 +1,48 @@
+active_change: tui-visual-redesign
+phase: archived
+status: completed
+preflight:
+  execution_mode: interactive
+  artifact_store: openspec
+  chained_pr_strategy: ask-always
+  review_budget: 400
+  playwright_enabled: false
+completed_phases:
+  - phase: explore
+    status: completed
+    timestamp: "2026-07-21T00:00:00Z"
+  - phase: propose
+    status: completed
+    timestamp: "2026-07-21T00:00:00Z"
+  - phase: spec
+    status: completed
+    timestamp: "2026-07-21T00:00:00Z"
+  - phase: design
+    status: completed
+    timestamp: "2026-07-21T00:00:00Z"
+  - phase: tasks
+    status: completed
+    timestamp: "2026-07-21T14:00:00Z"
+  - phase: apply
+    status: completed
+    timestamp: "2026-07-21T18:00:00Z"
+  - phase: verify
+    status: completed
+    timestamp: "2026-07-21T18:30:00Z"
+  - phase: judge
+    status: completed
+    timestamp: "2026-07-21T19:00:00Z"
+  - phase: archive
+    status: completed
+    timestamp: "2026-07-21T19:30:00Z"
+artifacts:
+  - openspec/changes/archive/2026-07-21-tui-visual-redesign/exploration.md
+  - openspec/changes/archive/2026-07-21-tui-visual-redesign/proposal.md
+  - openspec/changes/archive/2026-07-21-tui-visual-redesign/specs/caelestia-ui/spec.md
+  - openspec/changes/archive/2026-07-21-tui-visual-redesign/specs/caelestia-ui/caelestia-ui.feature
+  - openspec/changes/archive/2026-07-21-tui-visual-redesign/design.md
+  - openspec/changes/archive/2026-07-21-tui-visual-redesign/tasks.md
+  - openspec/changes/archive/2026-07-21-tui-visual-redesign/verify-report.md
+  - openspec/changes/archive/2026-07-21-tui-visual-redesign/state.yaml
+next_phase: none
+open_questions: []
