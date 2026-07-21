@@ -1,6 +1,9 @@
 package ui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/lipgloss"
+)
 
 type styles struct {
 	title    lipgloss.Style
@@ -33,4 +36,29 @@ func defaultStyles() styles {
 		errorMsg: lipgloss.NewStyle().Foreground(lipgloss.Color("#e0aaff")).Bold(true),
 		viz:      lipgloss.NewStyle().Foreground(lipgloss.Color("#e0aaff")),
 	}
+}
+
+// caelestiaListDelegate construye el delegate de bubbles/list con los acentos
+// Caelestia para los modales (modeResults y pickers). La selección se distingue
+// por foreground turquesa en negrita y un borde izquierdo mauve — nunca por un
+// relleno de fondo opaco: ningún subestilo define Background, preservando la
+// translucidez del vidrio de la terminal.
+func caelestiaListDelegate() list.DefaultDelegate {
+	d := list.NewDefaultDelegate()
+	d.Styles.NormalTitle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#a0a0a0")).
+		Padding(0, 0, 0, 2)
+	d.Styles.NormalDesc = d.Styles.NormalTitle.
+		Foreground(lipgloss.Color("#a0a0a0"))
+	d.Styles.SelectedTitle = lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#00f5d4")).
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(lipgloss.Color("#e0aaff")).
+		Padding(0, 0, 0, 1)
+	d.Styles.SelectedDesc = d.Styles.SelectedTitle.
+		Foreground(lipgloss.Color("#e0aaff"))
+	d.Styles.DimmedTitle = d.Styles.NormalTitle
+	d.Styles.DimmedDesc = d.Styles.NormalDesc
+	return d
 }

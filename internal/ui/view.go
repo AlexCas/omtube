@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/alexcasdev/terminaltube/internal/search"
@@ -130,10 +131,9 @@ func computeLayout(width, height int) layout {
 	progressW := clamp(width-nowDecor-nowTitleTrunc, 8, 40)
 
 	// Filas de la cola: bodyH menos el chrome real del panel (2 de borde,
-	// 1 de encabezado y hasta 2 marcadores ▲/▼), con piso 3 para no colapsar
-	// en alturas chicas. El techo queda en 10 (la ventana histórica): la letra
-	// es la región que crece primero con el alto.
-	maxQueueRows := clamp(bodyH-5, 3, 10)
+	// 1 de encabezado y hasta 2 marcadores ▲/▼ = 5 filas de overhead), con
+	// piso 3 para no colapsar en alturas chicas y techo 20 (design D4).
+	maxQueueRows := clamp(bodyH-5, 3, 20)
 	// Ventana de letra sincronizada: bodyH menos borde (2) y encabezado (1),
 	// normalizada a impar para que la línea activa quede centrada.
 	lyricWindow := clamp(bodyH-3, 3, 12)
@@ -168,6 +168,22 @@ func clamp(v, lo, hi int) int {
 	return v
 }
 
+// themedList devuelve una copia tematizada de un list.Model con el delegate
+// Caelestia y una barra de título sin fondo: el Styles.Title por defecto de
+// bubbles/list trae Background("62"), que aquí se reemplaza por un estilo
+// translúcido con foreground mauve. Opera sobre la copia por valor y no muta
+// el estado del modelo.
+func themedList(l list.Model) list.Model {
+	l.SetDelegate(caelestiaListDelegate())
+	s := l.Styles
+	s.Title = lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#e0aaff")).
+		Padding(0, 1)
+	l.Styles = s
+	return l
+}
+
 // View renderiza la TUI.
 func (m Model) View() string {
 	if m.quitting {
@@ -175,13 +191,13 @@ func (m Model) View() string {
 	}
 
 	if m.mode == modePicker || m.mode == modeLyricsPicker {
-		return m.picker.View()
+		return themedList(m.picker).View()
 	}
 
 	// modeResults: modal de pantalla completa; la vista principal queda oculta.
 	if m.mode == modeResults {
 		var rb strings.Builder
-		rb.WriteString(m.resultsList.View())
+		rb.WriteString(themedList(m.resultsList).View())
 		rb.WriteString("\n")
 		rb.WriteString(m.styles.help.Render(
 			"enter encolar · a +playlist · f favorito · ↑/↓ navegar · esc cerrar"))
