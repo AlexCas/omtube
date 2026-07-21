@@ -104,22 +104,32 @@ func hasNoBackground(s lipgloss.Style) bool {
 	}
 }
 
-// TestStylesNoBackground verifica el escenario "No opaque background paints
-// over the terminal glass": ni title ni panel exponen color de fondo y ambos
-// conservan el borde redondeado.
+// TestStylesNoBackground verifica el escenario "No opaque background on any
+// style including new ones": ni los estilos históricos (title/panel) ni los
+// cinco del rediseño sidebar (sidebar, card, navActive, navItem, accentBar)
+// exponen color de fondo, y las cajas conservan el borde redondeado.
 func TestStylesNoBackground(t *testing.T) {
 	s := defaultStyles()
-	if !hasNoBackground(s.title) {
-		t.Errorf("styles.title no debe definir Background; got %#v", s.title.GetBackground())
+	checks := []struct {
+		name  string
+		style lipgloss.Style
+		boxed bool
+	}{
+		{"title", s.title, true},
+		{"panel", s.panel, true},
+		{"sidebar", s.sidebar, true},
+		{"card", s.card, true},
+		{"navActive", s.navActive, false},
+		{"navItem", s.navItem, false},
+		{"accentBar", s.accentBar, false},
 	}
-	if !hasNoBackground(s.panel) {
-		t.Errorf("styles.panel no debe definir Background; got %#v", s.panel.GetBackground())
-	}
-	if s.title.GetBorderStyle() != lipgloss.RoundedBorder() {
-		t.Error("styles.title debe conservar el borde redondeado")
-	}
-	if s.panel.GetBorderStyle() != lipgloss.RoundedBorder() {
-		t.Error("styles.panel debe conservar el borde redondeado")
+	for _, c := range checks {
+		if !hasNoBackground(c.style) {
+			t.Errorf("styles.%s no debe definir Background; got %#v", c.name, c.style.GetBackground())
+		}
+		if c.boxed && c.style.GetBorderStyle() != lipgloss.RoundedBorder() {
+			t.Errorf("styles.%s debe conservar el borde redondeado", c.name)
+		}
 	}
 }
 
@@ -182,10 +192,13 @@ func TestComputeLayoutWidths(t *testing.T) {
 }
 
 // TestComputeLayoutHeight verifica que las alturas de columna igualan bodyH
-// (design D2a) y que las ventanas de cola y letra derivan del alto sin los
-// techos fijos históricos de 20/12 (design D2b–D2d): mínimos que no colapsan,
-// ventana impar centrada y crecimiento coherente con la altura disponible.
+// (design D2a) y que las ventanas de cola y letra derivan del alto sin techos
+// fijos (design D2b–D2f): mínimos que no colapsan, ventana impar centrada,
+// crecimiento monótono con la altura y la aritmética re-medida del slice 2
+// (chromeFixed=14 con helpRows(120)=2 ⇒ bodyH = height-16, con chrome
+// compacto a alturas mínimas).
 func TestComputeLayoutHeight(t *testing.T) {
+	prev := 0
 	for _, height := range []int{20, 24, 30, 40} {
 		t.Run(fmt.Sprintf("%drows", height), func(t *testing.T) {
 			l := computeLayout(120, height)
@@ -208,28 +221,55 @@ func TestComputeLayoutHeight(t *testing.T) {
 			if l.plainLines < 3 {
 				t.Errorf("plainLines %d < mínimo 3", l.plainLines)
 			}
+			if l.maxQueueRows < prev {
+				t.Errorf("maxQueueRows %d no debe decrecer al crecer la altura (previo %d)",
+					l.maxQueueRows, prev)
+			}
+			prev = l.maxQueueRows
 			switch height {
 			case 20:
+				// Chrome compacto: 20 - (11+2) = 7 filas de cuerpo.
+				if !l.compactChrome {
+					t.Error("a 20 filas debe activarse el chrome compacto")
+				}
+				if l.bodyH != 7 {
+					t.Errorf("bodyH = %d; want 7 (20 - (chromeCompact 11 + ayuda 2))", l.bodyH)
+				}
 				if l.maxQueueRows >= 10 {
 					t.Errorf("a 20 filas la cola debe reducirse: maxQueueRows=%d", l.maxQueueRows)
 				}
+				if l.navRows != 0 {
+					t.Errorf("a 20 filas la nav debe ceder ante la cola: navRows=%d", l.navRows)
+				}
 			case 30:
-				if l.maxQueueRows < 12 {
-					t.Errorf("a 30 filas la cola debe expandirse: maxQueueRows=%d", l.maxQueueRows)
+				// Aritmética D5a: bodyH = 30 - (chromeFixed 14 + ayuda 2) = 14.
+				if l.compactChrome {
+					t.Error("a 30 filas no debe activarse el chrome compacto")
+				}
+				if l.bodyH != 14 {
+					t.Errorf("bodyH = %d; want 14 (30 - (chromeFixed 14 + ayuda 2))", l.bodyH)
+				}
+				if l.navRows != 5 {
+					t.Errorf("a 30 filas la nav debe dibujarse: navRows=%d", l.navRows)
 				}
 			case 40:
-				// Techos levantados: la cola supera el antiguo tope de 20 y la
-				// letra el antiguo tope de 12; la cola puede crecer más que la
-				// ventana de letra.
-				if l.maxQueueRows <= 20 {
-					t.Errorf("a 40 filas la cola debe superar el antiguo techo de 20: maxQueueRows=%d", l.maxQueueRows)
+				// Aritmética D5a: bodyH = 40 - (14+2) = 24; sin techo fijo la
+				// cola llena sidebarH-queueChrome(10) = 14 filas y crece más
+				// que la ventana de letra.
+				if l.bodyH != 24 {
+					t.Errorf("bodyH = %d; want 24 (40 - (chromeFixed 14 + ayuda 2))", l.bodyH)
 				}
-				if l.lyricWindow <= 12 {
-					t.Errorf("a 40 filas la letra debe superar el antiguo techo de 12: lyricWindow=%d", l.lyricWindow)
+				if l.maxQueueRows != l.sidebarH-10 {
+					t.Errorf("maxQueueRows = %d; debe derivar de sidebarH-queueChrome = %d",
+						l.maxQueueRows, l.sidebarH-10)
 				}
 				if l.maxQueueRows <= l.lyricWindow {
 					t.Errorf("a 40 filas la cola debe crecer más que la letra: maxQueueRows=%d lyricWindow=%d",
 						l.maxQueueRows, l.lyricWindow)
+				}
+				if l30 := computeLayout(120, 30); l.lyricWindow <= l30.lyricWindow {
+					t.Errorf("la ventana de letra debe crecer de 30 a 40 filas: %d <= %d",
+						l.lyricWindow, l30.lyricWindow)
 				}
 			}
 		})
@@ -332,7 +372,7 @@ func TestNoLineExceedsWidth(t *testing.T) {
 // responsivos deben diferir entre sí por pares (el 120×40 añade la variación
 // solo-en-alto del mismo breakpoint wide).
 func TestGoldensDiffer(t *testing.T) {
-	names := []string{"view_60x20.golden", "view_80x24.golden", "view_120x30.golden", "view_120x40.golden"}
+	names := []string{"view_60x20.golden", "view_80x24.golden", "view_120x30.golden", "view_120x40.golden", "view_library_120x30.golden"}
 	goldens := make([][]byte, len(names))
 	for i, name := range names {
 		data, err := os.ReadFile(filepath.Join("testdata", name))
@@ -366,10 +406,10 @@ func TestNoBlankBodyBand(t *testing.T) {
 	m.curArtwork = "ASCII ART"
 	out := m.View()
 	lines := strings.Split(out, "\n")
-	// Chrome superior: título (3), separador, ahora-suena, separador, estado,
-	// separador = 8 filas antes del cuerpo. Chrome inferior: separador, ayuda
-	// envuelta (2 a 120 cols), visualizador y línea final = 5 filas.
-	bodyStart, bodyEnd := 8, len(lines)-5
+	// Chrome superior: título (3), separador, estado, separador = 6 filas
+	// antes del cuerpo. Chrome inferior: separador, tarjeta (4), separador,
+	// ayuda envuelta (2 a 120 cols), visualizador y línea final = 10 filas.
+	bodyStart, bodyEnd := 6, len(lines)-10
 	if bodyEnd <= bodyStart {
 		t.Fatalf("salida demasiado corta para aislar el cuerpo: %d líneas", len(lines))
 	}
@@ -377,6 +417,80 @@ func TestNoBlankBodyBand(t *testing.T) {
 		if strings.TrimSpace(lines[i]) == "" {
 			t.Errorf("fila %d del cuerpo totalmente en blanco: banda vacía en la sección media", i)
 		}
+	}
+}
+
+// TestFooterCardNoClip60x20 verifica el escenario "Footer card does not clip
+// elements at 20 rows": a 60×20 con la tarjeta al pie presente, título,
+// tarjeta (estado + vol), encabezado de cola, ayuda y visualizador siguen
+// visibles, ninguna línea excede 60 columnas y la vista compuesta cabe en la
+// terminal.
+func TestFooterCardNoClip60x20(t *testing.T) {
+	m := newTestModel(t, Services{Lyrics: fakeLyrics{}, Artwork: fakeArtwork{art: "ART"}})
+	m.width, m.height = 60, 20
+	m.queue.Add(search.Result{ID: "a", Title: "Alpha Song", Uploader: "Alpha Artist"})
+	m.curTrackID = "a"
+	m.pos, m.dur = 45, 180
+
+	out := m.View()
+	if !strings.Contains(out, "Omusic") {
+		t.Errorf("el título debe seguir visible a 60×20; got:\n%s", out)
+	}
+	if !strings.Contains(out, "▶") && !strings.Contains(out, "⏸") {
+		t.Errorf("la tarjeta debe mostrar el glifo de estado ▶/⏸; got:\n%s", out)
+	}
+	if !strings.Contains(out, "vol ") {
+		t.Errorf("la tarjeta debe mostrar el volumen; got:\n%s", out)
+	}
+	if !strings.Contains(out, "0:45/3:00") {
+		t.Errorf("la tarjeta debe mostrar el tiempo pos/dur; got:\n%s", out)
+	}
+	if !strings.Contains(out, "Cola") {
+		t.Errorf("el encabezado de cola debe seguir visible; got:\n%s", out)
+	}
+	if !strings.Contains(out, "buscar") {
+		t.Errorf("la ayuda debe seguir visible; got:\n%s", out)
+	}
+	if !strings.ContainsAny(out, "▁▂▃▄▅▆▇█") {
+		t.Errorf("el visualizador debe seguir visible; got:\n%s", out)
+	}
+	for i, line := range strings.Split(out, "\n") {
+		if w := lipgloss.Width(line); w > 60 {
+			t.Errorf("línea %d excede 60 columnas: %d\n%q", i, w, line)
+		}
+	}
+	if got := lipgloss.Height(out); got > 20 {
+		t.Errorf("la vista con tarjeta mide %d filas; debe caber en 20", got)
+	}
+}
+
+// TestFooterCardParity120x30 verifica el escenario "Footer card shows
+// now-playing content": la tarjeta al pie conserva paridad completa con la
+// barra histórica (glifo de estado, título, barra de progreso, tiempo pos/dur
+// y vol N) y el bloque nav de la sidebar dibuja los cuatro ítems estáticos.
+func TestFooterCardParity120x30(t *testing.T) {
+	m := newTestModel(t, Services{Lyrics: fakeLyrics{}, Artwork: fakeArtwork{art: "ART"}})
+	m.width, m.height = 120, 30
+	m.queue.Add(search.Result{ID: "a", Title: "Alpha Song", Uploader: "Alpha Artist"})
+	m.curTrackID = "a"
+	m.pos, m.dur = 45, 180
+
+	out := m.View()
+	for _, want := range []string{"▶", "Alpha Song", "━", "─", "0:45/3:00", "vol 70"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("la tarjeta debe conservar %q; got:\n%s", want, out)
+		}
+	}
+	// Nav estática de la sidebar (design D4a): Cola activa + tres ítems más.
+	for _, item := range []string{"Cola", "Biblioteca", "Favoritos", "Historial"} {
+		if !strings.Contains(out, item) {
+			t.Errorf("la nav de la sidebar debe mostrar %q; got:\n%s", item, out)
+		}
+	}
+	// La tarjeta vive DEBAJO del cuerpo: su borde superior aparece después de
+	// la última fila de la sidebar.
+	if lipgloss.Height(out) > 30 {
+		t.Errorf("la vista mide %d filas; debe caber en 30", lipgloss.Height(out))
 	}
 }
 
@@ -410,6 +524,18 @@ func TestCaelestiaAccentColors(t *testing.T) {
 				if s.errorMsg.GetForeground() != lipgloss.Color("#e0aaff") {
 					t.Errorf("errorMsg foreground no es mauve: %v", s.errorMsg.GetForeground())
 				}
+				if s.navActive.GetForeground() != lipgloss.Color("#e0aaff") {
+					t.Errorf("navActive foreground no es mauve: %v", s.navActive.GetForeground())
+				}
+				if s.accentBar.GetForeground() != lipgloss.Color("#e0aaff") {
+					t.Errorf("accentBar foreground no es mauve: %v", s.accentBar.GetForeground())
+				}
+				if s.sidebar.GetBorderTopForeground() != lipgloss.Color("#e0aaff") {
+					t.Errorf("sidebar border no es mauve: %v", s.sidebar.GetBorderTopForeground())
+				}
+				if s.card.GetBorderTopForeground() != lipgloss.Color("#e0aaff") {
+					t.Errorf("card border no es mauve: %v", s.card.GetBorderTopForeground())
+				}
 			case "#00f5d4":
 				if s.selected.GetForeground() != lipgloss.Color("#00f5d4") {
 					t.Errorf("selected foreground no es teal: %v", s.selected.GetForeground())
@@ -423,6 +549,9 @@ func TestCaelestiaAccentColors(t *testing.T) {
 				}
 				if s.help.GetForeground() != lipgloss.Color("#a0a0a0") {
 					t.Errorf("help foreground no es muted: %v", s.help.GetForeground())
+				}
+				if s.navItem.GetForeground() != lipgloss.Color("#a0a0a0") {
+					t.Errorf("navItem foreground no es muted: %v", s.navItem.GetForeground())
 				}
 			}
 		})
@@ -495,6 +624,89 @@ func TestLibraryViewIsTranslucent(t *testing.T) {
 	if !hasNoBackground(m.styles.dim) {
 		t.Errorf("styles.dim no debe definir Background")
 	}
+}
+
+// TestLibraryInMainSidebarPersists verifica el escenario "Library renders in
+// main with a persistent sidebar" (@slice3): en modo biblioteca la vista
+// conserva la composición sidebar+main — la nav de la sidebar marca
+// Biblioteca como activa (prefijo ▸ del ítem acentuado), la cola persiste al
+// lado y las pestañas, el cursor ➤ y la ayuda de biblioteca viven dentro del
+// área main — sin fondos opacos ni líneas que desborden.
+func TestLibraryInMainSidebarPersists(t *testing.T) {
+	m := newTestModel(t, Services{})
+	m.mode = modeLibrary
+	m.width, m.height = 120, 30
+	m.queue.Add(search.Result{ID: "a", Title: "Alpha Song", Uploader: "Alpha Artist"})
+	m.libSection = sectionFavorites
+	m.libFavorites = []search.Result{
+		{ID: "a", Title: "Canción A", Uploader: "Artista A"},
+		{ID: "b", Title: "Canción B", Uploader: "Artista B"},
+	}
+	m.libCursor = 0
+
+	out := m.View()
+	// Sidebar persistente: nav completa con Biblioteca activa (▸) y la cola.
+	for _, want := range []string{"▸ Biblioteca", "Cola (1)", "Alpha Song"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("la sidebar debe persistir con %q en modo biblioteca; got:\n%s", want, out)
+		}
+	}
+	// Contenido de biblioteca dentro del área main: pestañas, cursor y ayuda.
+	for _, want := range []string{"[Favoritos]", "Playlists", "Historial", "➤ Canción A", "navegar"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("el área main debe mostrar %q en modo biblioteca; got:\n%s", want, out)
+		}
+	}
+	for i, line := range strings.Split(out, "\n") {
+		if w := lipgloss.Width(line); w > 120 {
+			t.Errorf("línea %d excede 120 columnas: %d\n%q", i, w, line)
+		}
+	}
+	if got := lipgloss.Height(out); got > 30 {
+		t.Errorf("la vista biblioteca-en-main mide %d filas; debe caber en 30", got)
+	}
+	// Translucidez del camino biblioteca-en-main: filas de selección y nav
+	// sin Background opaco (design D7d).
+	for _, c := range []struct {
+		name  string
+		style lipgloss.Style
+	}{
+		{"selected", m.styles.selected},
+		{"dim", m.styles.dim},
+		{"navActive", m.styles.navActive},
+		{"navItem", m.styles.navItem},
+		{"sidebar", m.styles.sidebar},
+		{"panel", m.styles.panel},
+	} {
+		if !hasNoBackground(c.style) {
+			t.Errorf("styles.%s no debe definir Background en biblioteca-en-main", c.name)
+		}
+	}
+}
+
+// TestLibraryGolden bloquea el render del modo biblioteca-en-main a 120×30
+// (@slice3): sidebar persistente con Biblioteca activa y el contenido de la
+// biblioteca dentro de la caja main.
+func TestLibraryGolden(t *testing.T) {
+	m := newTestModel(t, Services{
+		Lyrics:  fakeLyrics{},
+		Artwork: fakeArtwork{art: "ART"},
+	})
+	m.mode = modeLibrary
+	m.width, m.height = 120, 30
+	m.queue.Add(search.Result{ID: "a", Title: "Alpha Song", Uploader: "Alpha Artist"})
+	m.queue.Add(search.Result{ID: "b", Title: "Beta Track", Uploader: "Beta Artist"})
+	m.curTrackID = "a"
+	m.pos, m.dur = 45, 180
+	m.libSection = sectionFavorites
+	m.libFavorites = []search.Result{
+		{ID: "a", Title: "Canción A", Uploader: "Artista A"},
+		{ID: "b", Title: "Canción B", Uploader: "Artista B"},
+	}
+	m.libCursor = 1
+
+	out := m.View()
+	compareGolden(t, filepath.Join("testdata", "view_library_120x30.golden"), out)
 }
 
 // TestResultsModalGolden bloquea el render del modal de resultados a 120×30

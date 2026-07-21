@@ -5,14 +5,14 @@
                                           Pulsa / para buscar · L biblioteca.                                           
                                                                                                                         
  ╭──────────────────────────────────╮╭────────────────────────────────────────────────────────────────────────────────╮ 
- │ ▸ Cola                           ││ ▎Portada                                                                       │ 
- │   Biblioteca                     ││ ASCII ART                                                                      │ 
- │   Favoritos                      ││ ▎Letra                                                                         │ 
- │   Historial                      ││ Line one                                                                       │ 
- │ ──────────────────────────────── ││ Line two                                                                       │ 
- │ ▎Cola (2)                        ││ Line three                                                                     │ 
- │   ▶ Alpha Song                   ││                                                                                │ 
- │     Beta Track                   ││                                                                                │ 
+ │   Cola                           ││ ▎📚 Biblioteca                                                                 │ 
+ │ ▸ Biblioteca                     ││  Playlists   [Favoritos]   Historial                                           │ 
+ │   Favoritos                      ││                                                                                │ 
+ │   Historial                      ││   Canción A  — Artista A                                                       │ 
+ │ ──────────────────────────────── ││ ➤ Canción B  — Artista B                                                       │ 
+ │ ▎Cola (2)                        ││                                                                                │ 
+ │   ▶ Alpha Song                   ││ ↑/↓ navegar · n/p sección · enter reproducir · f favorito · a +playlist · c    │ 
+ │     Beta Track                   ││ crear playlist · esc/L volver · q salir                                        │ 
  │                                  ││                                                                                │ 
  │                                  ││                                                                                │ 
  │                                  ││                                                                                │ 

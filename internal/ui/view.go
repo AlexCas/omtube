@@ -51,8 +51,10 @@ type layout struct {
 	maxQueueRows            int  // filas visibles de la cola
 	lyricWindow, plainLines int  // ventana de letra sincronizada / plana
 	nowTitleTrunc           int  // truncado del título en "ahora suena"
-	libLineTrunc            int  // truncado de líneas de biblioteca
+	libLineTrunc            int  // truncado de líneas de biblioteca (interior de la caja main)
 	showArtwork             bool
+	navRows                 int  // filas del bloque nav de la sidebar (0 cuando no cabe)
+	compactChrome           bool // alturas mínimas: tarjeta de 1 fila y sin separadores del cuerpo
 }
 
 // minUsable es el piso del ancho útil: por debajo el layout no intenta
@@ -85,16 +87,31 @@ func computeLayout(width, height int) layout {
 	bp := classify(width)
 	usable := max(width-2, minUsable) // margen exterior de 2 columnas
 
-	// Chrome vertical medido sobre View(): título con borde (3), separador (1),
-	// ahora-suena (1), separador (1), estado/búsqueda (1), separador (1) antes
-	// de la sección media; y separador (1), ayuda (envuelta, medida aparte),
-	// visualizador (1) y salto final (1) después de ella. Total fijo: 11 filas
-	// más las que ocupe la ayuda al ancho actual.
-	const chromeFixed = 11
-	// minBody es el piso de la sección media: por debajo los paneles ya no se
-	// comprimen más y se acepta que la vista exceda alturas extremas.
+	// Chrome vertical medido sobre View() (design D5a): título con borde (3),
+	// separador (1), estado (1), separador (1); tras el cuerpo: separador (1),
+	// tarjeta de "ahora suena" (4 = 2 borde + 2 contenido), separador (1),
+	// ayuda (medida aparte), visualizador (1) y salto final (1). Re-medido en
+	// el slice 2: la barra superior (-2) se vuelve tarjeta al pie (+5) ⇒
+	// 11 - 2 + 5 = 14 filas fijas más las de la ayuda.
+	const chromeFixed = 14
+	// En alturas mínimas el chrome cede antes que los elementos obligatorios:
+	// la tarjeta colapsa a una fila de contenido (-1) y se omiten los dos
+	// separadores del cuerpo (-2) ⇒ 11 fijas, de modo que a 60×20 sigan
+	// cabiendo encabezado de cola + 3 filas de pista (Element Parity) sin que
+	// la vista exceda la terminal.
+	const chromeCompact = 11
+	// minBody es el piso duro de la sección media; minFullBody es el cuerpo
+	// mínimo con encabezado + 3 filas de cola en la sidebar: por debajo se
+	// activa el chrome compacto.
 	const minBody = 4
-	bodyH := max(height-(chromeFixed+helpRows(width)), minBody)
+	const minFullBody = 6
+	hr := helpRows(width)
+	bodyH := height - (chromeFixed + hr)
+	compactChrome := bodyH < minFullBody
+	if compactChrome {
+		bodyH = height - (chromeCompact + hr)
+	}
+	bodyH = max(bodyH, minBody)
 
 	// División principal sidebar | main (design D1): dos cajas con borde de
 	// altura completa; cada una cuesta panelBorder columnas fuera de Width().
@@ -114,43 +131,53 @@ func computeLayout(width, height int) layout {
 	}
 	mainW := split - sidebarW
 
-	// Anchos interiores del área main. Intermedio del slice 1: letra y portada
-	// se dibujan lado a lado DENTRO de la caja main, así que sus subpaneles con
-	// borde deben caber en el ancho interior (mainW menos padding 2 de la caja
-	// main y panelBorder por subpanel). El slice 2 los apila a ancho completo.
+	// Anchos interiores del área main (design D1f): portada y letra se APILAN
+	// a ancho completo dentro de la caja main (slice 2), así que ambos usan
+	// mainW como columna única; bajo narrow la portada se oculta.
 	showArtwork := bp != bpNarrow
 	queueW := sidebarW
-	var lyricsW, artW int
+	lyricsW := mainW
+	artW := 0
 	if showArtwork {
-		inner := mainW - 2 - 2*panelBorder
-		artW = clamp(int(math.Round(float64(inner)*0.30)), 24, 28)
-		lyricsW = inner - artW
-	} else {
-		lyricsW = mainW - 2 - panelBorder
+		artW = mainW
 	}
 
-	// Línea "ahora suena": el resto de la línea (estado, tiempos, volumen y
-	// separadores) ocupa ~24 columnas fijas; título y barra reparten el resto.
-	// El truncado del título queda acotado también por el ancho de la terminal
-	// para que título + barra mínima (8) nunca desborden la línea.
+	// Contenido de la tarjeta "ahora suena": el resto de la fila (estado,
+	// tiempos, volumen y separadores) ocupa ~24 columnas fijas; título y barra
+	// reparten el ancho de texto interior de la tarjeta (usable menos borde y
+	// padding), de modo que la fila compacta nunca envuelve dentro de la caja.
 	const nowDecor = 24
-	nowTitleTrunc := max(8, min(lyricsW-4, width-nowDecor-8))
-	progressW := clamp(width-nowDecor-nowTitleTrunc, 8, 40)
+	cardText := usable - panelBorder - 2
+	nowTitleTrunc := max(8, min(lyricsW-4, cardText-nowDecor-8))
+	progressW := clamp(cardText-nowDecor-nowTitleTrunc, 8, 40)
 
 	// Alturas de las columnas (design D2a): ambas llenan la sección media.
 	sidebarH := bodyH
 	mainH := bodyH
 
-	// Filas de la cola (design D2b): sidebarH menos el chrome real del panel
-	// (2 de borde, 1 de encabezado y hasta 2 marcadores ▲/▼ = 5 filas). Sin
-	// techo fijo, con techo duro en el interior de la caja (fillBoxHeight).
-	const queueChrome = 5
-	maxQueueRows := clamp(sidebarH-queueChrome, 3, max(sidebarH-panelBorder-1, 3))
-	// Ventana de letra sincronizada (design D2c): mainH menos el chrome del
-	// intermedio del slice 1 — borde de la caja main (2) + borde del subpanel
-	// de letra (2) + encabezado (1) = 5 —, sin techo fijo y normalizada a
-	// impar para que la línea activa quede centrada.
-	const lyricChrome = 5
+	// Bloque de navegación de la sidebar (design D4a/D2e): 4 ítems + 1 regla
+	// acentuada = 5 filas. Solo se dibuja cuando cabe junto al encabezado y
+	// al menos 3 filas de cola (5 nav + 5 chrome de cola + 3 filas): la nav
+	// cede antes que la ventana de cola (Element Parity a 60×20).
+	navRows := 0
+	if sidebarH >= 5+5+3 {
+		navRows = 5
+	}
+	// Filas de la cola (design D2b/D2e): sidebarH menos el chrome real del
+	// panel (2 de borde, 1 de encabezado, hasta 2 marcadores ▲/▼ y el bloque
+	// nav cuando está presente). Sin techo fijo, con techo duro en el interior
+	// de la caja (fillBoxHeight).
+	queueChrome := 5 + navRows
+	maxQueueRows := clamp(sidebarH-queueChrome, 3, max(sidebarH-panelBorder-navRows-1, 3))
+	// Ventana de letra sincronizada (design D2c/D2f): mainH menos el chrome
+	// del apilado — borde de la caja main (2) + encabezado de letra (1), más
+	// el bloque de portada (encabezado 1 + 12 filas de arte) cuando se
+	// muestra —, sin techo fijo y normalizada a impar para que la línea
+	// activa quede centrada.
+	lyricChrome := 3
+	if showArtwork {
+		lyricChrome += 13
+	}
 	lyricWindow := clamp(mainH-lyricChrome, 3, mainH)
 	if lyricWindow%2 == 0 {
 		lyricWindow--
@@ -174,8 +201,10 @@ func computeLayout(width, height int) layout {
 		lyricWindow:   lyricWindow,
 		plainLines:    plainLines,
 		nowTitleTrunc: nowTitleTrunc,
-		libLineTrunc:  max(20, width-4),
+		libLineTrunc:  max(10, mainW-4),
 		showArtwork:   showArtwork,
+		navRows:       navRows,
+		compactChrome: compactChrome,
 	}
 }
 
@@ -212,6 +241,8 @@ func (m Model) View() string {
 		return "¡Hasta luego!\n"
 	}
 
+	// Pickers de letra/lista: a pantalla completa por diseño (design D8) —
+	// los maneja bubbles/list desde Update y no entran en la caja main.
 	if m.mode == modePicker || m.mode == modeLyricsPicker {
 		return themedList(m.picker).View()
 	}
@@ -228,18 +259,13 @@ func (m Model) View() string {
 
 	// Layout derivado del tamaño actual: se calcula una vez por render y se
 	// enhebra en cada helper (anchos, truncados y ventanas fluidos).
+	// El modo biblioteca (modeLibrary/modeCreatePlaylist) ya no retorna una
+	// vista aparte: fluye por este mismo bloque y renderMain enruta su
+	// contenido al área main con la sidebar persistente (design D8).
 	l := computeLayout(m.width, m.height)
-
-	if m.mode == modeLibrary || m.mode == modeCreatePlaylist {
-		return m.renderLibrary(l)
-	}
 
 	var b strings.Builder
 	b.WriteString(m.styles.title.Render("🎵 Omusic"))
-	b.WriteString("\n\n")
-
-	// Barra de "ahora suena" en la parte superior (Caelestia layout).
-	b.WriteString(m.renderNowPlaying(l))
 	b.WriteString("\n\n")
 
 	// Barra de búsqueda/prompt o estado.
@@ -248,12 +274,23 @@ func (m Model) View() string {
 	} else {
 		b.WriteString(m.styles.dim.Render(m.status))
 	}
-	b.WriteString("\n\n")
+	b.WriteString("\n")
+	if !l.compactChrome {
+		b.WriteString("\n")
+	}
 
-	// Sección media: cola + paneles de enriquecimiento (letra/portada) lado a
-	// lado. Los paneles de enriquecimiento solo se dibujan cuando su servicio
-	// está activo; con los toggles apagados la vista es la de la Fase 2.
+	// Sección media: sidebar (nav + cola) y main (portada apilada sobre la
+	// letra). Los bloques de enriquecimiento solo se dibujan cuando su
+	// servicio está activo; con los toggles apagados la vista es la de la
+	// Fase 2.
 	b.WriteString(m.renderMiddleSection(l))
+	b.WriteString("\n")
+	if !l.compactChrome {
+		b.WriteString("\n")
+	}
+
+	// Tarjeta de "ahora suena" entre el cuerpo y la ayuda (design D3/D5).
+	b.WriteString(m.renderNowPlayingCard(l))
 	b.WriteString("\n\n")
 
 	// Ayuda en la parte inferior, seguida del visualizador de barras.
@@ -345,17 +382,18 @@ func (m Model) queueBody(l layout) string {
 	if total > 0 {
 		heading = fmt.Sprintf("Cola (%d)", total)
 	}
-	b.WriteString(m.styles.heading.Render(heading))
+	b.WriteString(sectionHeader(m.styles, heading))
 	b.WriteString("\n")
 	if total == 0 {
 		b.WriteString(m.styles.dim.Render("(vacía)"))
 		return b.String()
 	}
 
-	// Los marcadores ▲/▼ solo se dibujan si caben en el interior de la caja;
-	// se omiten antes que filas de pista (fila ▶ visible: Parity @slice1).
+	// Los marcadores ▲/▼ solo se dibujan si caben en el interior de la caja
+	// (descontando el bloque nav cuando está presente); se omiten antes que
+	// filas de pista (fila ▶ visible: Parity @slice1).
 	start, end := queueWindow(m.queue.Index(), total, l.maxQueueRows)
-	free := l.sidebarH - panelBorder - 1 - (end - start)
+	free := l.sidebarH - panelBorder - l.navRows - 1 - (end - start)
 	showDown := end < total && free > 0
 	if showDown {
 		free--
@@ -405,23 +443,54 @@ func queueWindow(idx, total, window int) (start, end int) {
 	return start, end
 }
 
+// renderNowPlaying compone la fila única de "ahora suena" (contenido compacto
+// de la tarjeta al pie). El glifo de estado lleva color de estado: turquesa al
+// reproducir, apagado en pausa.
 func (m Model) renderNowPlaying(l layout) string {
 	cur, ok := m.queue.Current()
 	if !ok {
 		return m.styles.dim.Render("Nada en reproducción")
 	}
-	state := "▶"
-	if m.player.Paused() {
-		state = "⏸"
-	}
 	bar := progressBar(m.pos, m.dur, l.progressW)
 	return fmt.Sprintf("%s %s  %s  %s/%s  vol %d",
-		state,
+		m.stateGlyph(),
 		m.styles.current.Render(truncate(cur.Title, l.nowTitleTrunc)),
 		bar,
 		fmtTime(m.pos), fmtTime(m.dur),
 		m.player.Volume(),
 	)
+}
+
+// stateGlyph devuelve el glifo de estado de reproducción con su color de
+// estado: ▶ turquesa mientras suena, ⏸ apagado en pausa.
+func (m Model) stateGlyph() string {
+	if m.player.Paused() {
+		return m.styles.dim.Render("⏸")
+	}
+	return m.styles.current.Render("▶")
+}
+
+// renderNowPlayingCard dibuja la tarjeta de "ahora suena" al pie del cuerpo
+// (design D3/D5): caja acentuada translúcida con paridad completa — estado
+// ▶/⏸, título, barra de progreso, pos/dur y vol N — en dos filas, o en la
+// fila única histórica bajo chrome compacto. Abarca el ancho del cuerpo.
+func (m Model) renderNowPlayingCard(l layout) string {
+	cardW := l.sidebarW + l.mainW + panelBorder
+	rows := 2
+	if l.compactChrome {
+		rows = 1
+	}
+	content := m.renderNowPlaying(l)
+	if cur, ok := m.queue.Current(); ok && rows == 2 {
+		content = fmt.Sprintf("%s %s\n%s  %s/%s  vol %d",
+			m.stateGlyph(),
+			m.styles.current.Render(truncate(cur.Title, l.nowTitleTrunc)),
+			progressBar(m.pos, m.dur, l.progressW),
+			fmtTime(m.pos), fmtTime(m.dur),
+			m.player.Volume(),
+		)
+	}
+	return m.styles.card.Width(cardW).Height(rows).Render(content)
 }
 
 // isInputMode indica si el modo actual usa el input de texto compartido (búsqueda
@@ -447,18 +516,25 @@ func (m Model) wrapHelp(text string) string {
 	return m.styles.help.Render(text)
 }
 
-// renderLibrary dibuja el modo biblioteca con sus tres secciones (playlists,
-// favoritos, historial) y la sección activa resaltada.
-func (m Model) renderLibrary(l layout) string {
+// helpLibraryText es la línea de ayuda del modo biblioteca; se dibuja dentro
+// de la caja main envuelta a su ancho interior.
+const helpLibraryText = "↑/↓ navegar · n/p sección · enter reproducir · f favorito · a +playlist · c crear playlist · esc/L volver · q salir"
+
+// renderLibraryInMain compone el contenido del modo biblioteca para la caja
+// main (design D8): encabezado acentuado, prompt de crear playlist cuando
+// aplica, pestañas con la activa entre corchetes, lista con cursor ➤ y su
+// ayuda propia. Devuelve el contenido SIN caja: renderMain lo envuelve en la
+// caja de altura completa, con la sidebar persistente al lado ("Biblioteca"
+// acentuada en la nav). Las filas usan los estilos selected/dim existentes —
+// sin fondos opacos.
+func (m Model) renderLibraryInMain(l layout) string {
 	var b strings.Builder
-	b.WriteString(m.styles.title.Render("📚 Biblioteca"))
-	b.WriteString("\n\n")
+	b.WriteString(sectionHeader(m.styles, "📚 Biblioteca"))
+	b.WriteString("\n")
 	if m.mode == modeCreatePlaylist {
 		b.WriteString(m.input.View())
-	} else {
-		b.WriteString(m.styles.dim.Render(m.status))
+		b.WriteString("\n")
 	}
-	b.WriteString("\n\n")
 
 	tabs := []struct {
 		sec   librarySection
@@ -486,7 +562,11 @@ func (m Model) renderLibrary(l layout) string {
 
 	switch m.libSection {
 	case sectionPlaylists:
-		b.WriteString(m.renderLibList(playlistLines(m.libPlaylists), "(sin playlists)"))
+		lines := playlistLines(m.libPlaylists)
+		for i := range lines {
+			lines[i] = truncate(lines[i], l.libLineTrunc)
+		}
+		b.WriteString(m.renderLibList(lines, "(sin playlists)"))
 	case sectionFavorites:
 		b.WriteString(m.renderLibList(trackLines(m.libFavorites, l.libLineTrunc), "(sin favoritos)"))
 	case sectionHistory:
@@ -494,10 +574,14 @@ func (m Model) renderLibrary(l layout) string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(m.wrapHelp(
-		"↑/↓ navegar · n/p sección · enter reproducir · f favorito · a +playlist · c crear playlist · esc/L volver · q salir"))
-	b.WriteString("\n")
-	return m.center(b.String())
+	// Ayuda de biblioteca envuelta al ancho interior de la caja main para que
+	// ninguna línea desborde (el padding de la caja descuenta 2 columnas).
+	if maxW := l.mainW - 2; maxW > 0 && lipgloss.Width(helpLibraryText) > maxW {
+		b.WriteString(m.styles.help.Width(maxW).Render(helpLibraryText))
+	} else {
+		b.WriteString(m.styles.help.Render(helpLibraryText))
+	}
+	return b.String()
 }
 
 // renderLibList dibuja una lista de líneas con el cursor de biblioteca, o el
@@ -584,41 +668,79 @@ func fillBoxHeight(box lipgloss.Style, w, rows int, content string) string {
 	return out
 }
 
+// sectionHeader compone un encabezado de sección con barra de acento (design
+// D7c): un glifo ▎ mauve antecede la etiqueta, estableciendo jerarquía visual
+// sin añadir filas ni fondo opaco.
+func sectionHeader(s styles, label string) string {
+	return s.accentBar.Render("▎") + s.heading.Render(label)
+}
+
+// navHeader dibuja el bloque de navegación estático de la sidebar (design
+// D4a/D8): el ítem activo en acento — Biblioteca en modo biblioteca, Cola en
+// el resto —, los demás apagados, cerrado por una regla acentuada. Sin
+// keybindings — jerarquía visual.
+func (m Model) navHeader(l layout) string {
+	active := "Cola"
+	if m.mode == modeLibrary || m.mode == modeCreatePlaylist {
+		active = "Biblioteca"
+	}
+	var b strings.Builder
+	for _, item := range []string{"Cola", "Biblioteca", "Favoritos", "Historial"} {
+		if item == active {
+			b.WriteString(m.styles.navActive.Render("▸ " + item))
+		} else {
+			b.WriteString(m.styles.navItem.Render("  " + item))
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString(m.styles.accentBar.Render(strings.Repeat("─", max(l.sidebarW-2, 1))))
+	return b.String()
+}
+
 // renderSidebar dibuja la columna lateral de altura completa: una caja de
-// ancho sidebarW forzada a sidebarH filas cuyo contenido es el cuerpo de la
-// cola. En modo slimRail (narrow) el contenido es el mismo, ya comprimido por
-// los anchos del layout (títulos truncados a queueW-6).
+// ancho sidebarW forzada a sidebarH filas cuyo contenido es el bloque nav
+// (cuando cabe) sobre el cuerpo de la cola. En modo slimRail (narrow) el
+// contenido es el mismo, ya comprimido por los anchos del layout (títulos
+// truncados a queueW-6).
 func (m Model) renderSidebar(l layout) string {
-	return fillBoxHeight(m.styles.panel, l.sidebarW, l.sidebarH, m.queueBody(l))
+	content := m.queueBody(l)
+	if l.navRows > 0 {
+		content = m.navHeader(l) + "\n" + content
+	}
+	return fillBoxHeight(m.styles.sidebar, l.sidebarW, l.sidebarH, content)
 }
 
 // renderMain dibuja la columna principal de altura completa: una caja de
-// ancho mainW forzada a mainH filas. Intermedio del slice 1: el contenido es
-// el enriquecimiento existente (letra y portada lado a lado); el slice 2 lo
-// reemplaza por el apilado portada-sobre-letra. Con los servicios apagados la
-// caja queda vacía (paridad de elementos: sin encabezados fantasma).
+// ancho mainW forzada a mainH filas con la portada APILADA sobre la letra a
+// ancho completo (design D4b/D2f), sin subpaneles con borde propio. Con los
+// servicios apagados la caja queda vacía (paridad de elementos: sin
+// encabezados fantasma). En modo biblioteca la caja aloja el contenido de la
+// biblioteca en lugar de portada+letra (design D8); resultados y pickers NO
+// pasan por aquí — siguen a pantalla completa desde View().
 func (m Model) renderMain(l layout) string {
-	return fillBoxHeight(m.styles.panel, l.mainW, l.mainH, m.renderEnrichment(l))
+	if m.mode == modeLibrary || m.mode == modeCreatePlaylist {
+		return fillBoxHeight(m.styles.panel, l.mainW, l.mainH, m.renderLibraryInMain(l))
+	}
+	return fillBoxHeight(m.styles.panel, l.mainW, l.mainH, m.mainBody(l))
 }
 
-// renderEnrichment compone los paneles de letra y portada lado a lado. Devuelve
-// "" cuando ninguno de los dos servicios está activo (paridad con la Fase 2).
-// Bajo el breakpoint narrow la portada se oculta (no se encoge ni se mueve),
-// dejando solo cola + letra en dos columnas.
-func (m Model) renderEnrichment(l layout) string {
+// mainBody compone el contenido apilado del área main: bloque de portada
+// (cuando su servicio está activo y el breakpoint la muestra) sobre el bloque
+// de letra. Devuelve "" cuando ninguno está activo (paridad con la Fase 2).
+func (m Model) mainBody(l layout) string {
 	hasLyrics := m.lyrics != nil
 	hasArtwork := m.artwork != nil && l.showArtwork
 	if !hasLyrics && !hasArtwork {
 		return ""
 	}
-	var panels []string
-	if hasLyrics {
-		panels = append(panels, m.renderLyricsPanelAt(l))
-	}
+	var parts []string
 	if hasArtwork {
-		panels = append(panels, m.renderArtworkPanelAt(l))
+		parts = append(parts, m.artworkBlock(l))
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, panels...)
+	if hasLyrics {
+		parts = append(parts, m.lyricsBlock(l))
+	}
+	return strings.Join(parts, "\n")
 }
 
 // renderLyricsPanel conserva la firma histórica (la invocan pruebas del
@@ -627,11 +749,19 @@ func (m Model) renderLyricsPanel() string {
 	return m.renderLyricsPanelAt(computeLayout(m.width, m.height))
 }
 
-// renderLyricsPanelAt dibuja la letra de la pista actual; resalta la línea
-// activa cuando es sincronizada y muestra "sin letra" cuando no hay ninguna.
+// renderLyricsPanelAt conserva la variante encajada histórica (la usan las
+// pruebas del paquete vía renderLyricsPanel): el bloque de letra dentro de la
+// caja de panel.
 func (m Model) renderLyricsPanelAt(l layout) string {
+	return m.styles.panel.Width(l.lyricsW).Render(m.lyricsBlock(l))
+}
+
+// lyricsBlock dibuja el bloque de letra sin caja propia (va apilado dentro de
+// la caja main): encabezado acentuado más la ventana sincronizada, el texto
+// plano o el estado vacío "sin letra".
+func (m Model) lyricsBlock(l layout) string {
 	var b strings.Builder
-	b.WriteString(m.styles.heading.Render("Letra"))
+	b.WriteString(sectionHeader(m.styles, "Letra"))
 	b.WriteString("\n")
 
 	switch {
@@ -642,7 +772,7 @@ func (m Model) renderLyricsPanelAt(l layout) string {
 	default:
 		b.WriteString(truncateLines(m.curLyrics.Plain, l.lyricsW-2, l.plainLines))
 	}
-	return m.styles.panel.Width(l.lyricsW).Render(b.String())
+	return b.String()
 }
 
 // renderSyncedLyrics muestra una ventana de líneas alrededor de la línea activa,
@@ -684,18 +814,31 @@ func (m Model) renderArtworkPanel() string {
 	return m.renderArtworkPanelAt(computeLayout(m.width, m.height))
 }
 
-// renderArtworkPanelAt dibuja la portada renderizada de la pista actual, o un
-// estado de degradación cuando no hay portada.
+// renderArtworkPanelAt conserva la variante encajada histórica (la usan las
+// pruebas del paquete vía renderArtworkPanel): el bloque de portada dentro de
+// la caja de panel.
 func (m Model) renderArtworkPanelAt(l layout) string {
+	return m.styles.panel.Width(l.artW).Render(m.artworkBlock(l))
+}
+
+// artworkBlock dibuja el bloque de portada sin caja propia (va apilado sobre
+// la letra dentro de la caja main), o el estado de degradación cuando no hay
+// portada. La portada cede filas antes de que la ventana de letra baje de su
+// mínimo (design: riesgo de desborde de las 12 filas fijas a alturas cortas).
+func (m Model) artworkBlock(l layout) string {
 	var b strings.Builder
-	b.WriteString(m.styles.heading.Render("Portada"))
+	b.WriteString(sectionHeader(m.styles, "Portada"))
 	b.WriteString("\n")
 	if m.curArtwork == "" {
 		b.WriteString(m.styles.dim.Render("[sin portada]"))
-	} else {
-		b.WriteString(m.curArtwork)
+		return b.String()
 	}
-	return m.styles.panel.Width(l.artW).Render(b.String())
+	artMax := l.mainH - panelBorder - 1
+	if m.lyrics != nil {
+		artMax -= 1 + l.plainLines
+	}
+	b.WriteString(truncateLines(m.curArtwork, l.mainW-2, max(artMax, 1)))
+	return b.String()
 }
 
 // truncateLines recorta un bloque de texto a maxLines líneas, cada una a maxCols
